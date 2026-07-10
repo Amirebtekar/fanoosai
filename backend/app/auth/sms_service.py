@@ -14,20 +14,26 @@ class MelipayamakClient:
         Send OTP code to phone number via Melipayamak API
         """
         url = f"{self.base_url}/sms/send"
+
+        message = f"فانووس‌ای‌آی: کد تأیید شما: {otp_code}"
         
         payload = {
             "username": self.username,
             "password": self.password,
             "from": self.from_number,
             "to": phone,
-            "message": f"کد تأیید شما: {otp_code}"
+            "message": message,
         }
         
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload) as response:
                     data = await response.json()
-                    return data.get("success", False)
+                    if response.status == 200 and data.get("success", False):
+                        return True
+                    else:
+                        print(f"SMS API Error: {data}")
+                        return False
         except Exception as e:
             print(f"SMS sending error: {e}")
             return False
