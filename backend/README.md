@@ -1,109 +1,97 @@
 # FanoosAI Backend
 
-API سرور FastAPI برای پروژه FanoosAI با پشتیبانی از احراز هویت دوگانه (ایمیل/رمز عبور و شماره موبایل/OTP).
+FastAPI backend for FanoosAI with email/password and SMS OTP authentication.
 
-## ساختار پروژه
+## Project Layout
 
 ```
 backend/
-│
-├── app/
-│   ├── __init__.py
-│   ├── main.py                 # نقطه ورود برنامه
-│   ├── core/
-│   │   └── config.py           # تنظیمات برنامه
-│   │
-│   ├── database/
-│   │   ├── connection.py       # اتصال به دیتابیس PostgreSQL
-│   │   └── models.py           # تعریف مدل‌های SQLAlchemy
-│   │
-│   ├── users/
-│   │   ├── model.py            # مدل‌های Pydantic کاربر
-│   │   ├── schema.py           # اسکیماهای ورودی/خروجی
-│   │   ├── router.py           # مسیرهای API کاربر
-│   │   └── service.py          # لایه سرویس کاربران
-│   │
-│   ├── auth/
-│   │   ├── jwt.py              # استراتژی JWT برای احراز هویت
-│   │   ├── password.py         # هش کردن رمز عبور با bcrypt
-│   │   └── sms_service.py      # سرویس ارسال OTP از طریق Melipayamak
-│   │
-│   └── migrations/             # مهاجرت‌های دیتابیس
-│
-└── .env                        # فایل تنظیمات محیطی
+|-- app/
+|   |-- main.py
+|   |-- core/
+|   |-- database/
+|   |-- users/
+|   `-- auth/
+|-- .env.example
+|-- .python-version
+|-- pyproject.toml
+`-- uv.lock
 ```
 
-## پیش‌نیازها
+## Requirements
 
 - Python 3.11+
-- PostgreSQL با driver `asyncpg`
-- حساب کاربری در سرویس پیامک Melipayamak (Parspack)
+- PostgreSQL with the `asyncpg` driver
+- A Melipayamak account for SMS OTP
 
-## نصب وابستگی‌ها
+## Install Dependencies
 
 ```bash
-pip install fastapi uvicorn[standard] fastapi-users[sqlalchemy] bcrypt passlib[bcrypt] pydantic-settings aiohttp asyncpg python-dotenv
+cd backend
+uv sync
 ```
 
-## پیکربندی
+## Environment
 
-1. فایل `.env` را با مقادیر زیر پر کنید:
+1. Copy `.env.example` to `.env`.
+2. Fill in the database, JWT, and SMS settings.
+
+Example:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:password@localhost/fanoosai
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/fanoosai
 JWT_SECRET_KEY=your-super-secret-jwt-key-change-me
+SECRET_KEY=your-super-secret-jwt-key-change-me
 MELIPAYAMAK_USERNAME=your-username
 MELIPAYAMAK_PASSWORD=your-password
 MELIPAYAMAK_FROM_NUMBER=+985000123456
+MELIPAYAMAK_SENDER=+985000123456
 ```
 
-2. دیتابیس PostgreSQL ایجاد کنید:
+3. Create the PostgreSQL database:
 
 ```bash
 createdb fanoosai
 ```
 
-## اجرا
+## Run
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## API Endpoints
 
-### احراز هویت کاربر
-- `POST /auth/register` - ثبت‌نام کاربر جدید
-- `POST /auth/login` - ورود با ایمیل/رمز عبور
-- `POST /auth/send-otp` - ارسال کد OTP به شماره موبایل
-- `POST /auth/verify-otp` - تأیید کد OTP
-- `GET /auth/jwt/login` - لایه‌ی FastAPI Users JWT
+### Authentication
+- `POST /auth/register` - Register a new user
+- `POST /auth/login` - Login with email and password
+- `POST /auth/send-otp` - Send OTP to a mobile number
+- `POST /auth/verify-otp` - Verify OTP code
+- `GET /auth/jwt/login` - FastAPI Users JWT login route
 
-### کاربران
-- `GET /users/me` - دریافت اطلاعات کاربر فعلی
-- `PUT /users/me` - به‌روزرسانی اطلاعات کاربر
+### Users
+- `GET /users/me` - Get the current user
+- `PUT /users/me` - Update the current user
 
-## ساختار دیتابیس
+## Database Schema
 
-جدول `users` با فیلدهای زیر:
-- `id` - شناسه یکتا (کلید اصلی)
-- `email` - ایمیل کاربر (یکتا)
-- `phone` - شماره موبایل کاربر (یکتا)
-- `hashed_password` - رمز عبور هش‌شده
-- `is_active` - وضعیت فعال/غیرفعال
-- `is_verified` - وضعیت تأیید شماره موبایل
-- `is_superuser` - وضعیت کاربر مدیر
+The `users` table includes:
+- `id` - primary key
+- `email` - unique email address
+- `phone` - unique mobile number
+- `hashed_password` - hashed password
+- `is_active` - active/inactive flag
+- `is_verified` - verification flag
+- `is_superuser` - admin flag
 
-## نکات فنی
+## Notes
 
-- از SQLAlchemy ORM با driver asyncpg استفاده می‌شود
-- تمام درخواست‌ها به صورت async پیاده‌سازی شده‌اند
-- JWT توکن با مدت زمان تنظیم‌شده در متغیر `JWT_LIFETIME_SECONDS`
-- OTP کدهای تصادفی ۶ رقمی برای تأیید شماره موبایل ارسال می‌شوند
+- SQLAlchemy ORM is used with the `asyncpg` driver
+- All requests are asynchronous
+- JWT lifetime is controlled by `JWT_LIFETIME_SECONDS`
+- OTP codes are 6 digits long
 
-## مستندات بیشتر
+## More
 
-برای مستندات کامل FastAPI Users:
-- https://fastapi-users.github.io/fastapi-users/
-
-برای مستندات FastAPI:
-- https://fastapi.tiangolo.com/
+- FastAPI Users docs: https://fastapi-users.github.io/fastapi-users/
+- FastAPI docs: https://fastapi.tiangolo.com/

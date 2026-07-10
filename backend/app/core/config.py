@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     # JWT
     JWT_SECRET_KEY: str = "your-super-secret-jwt-key-change-me"
+    SECRET_KEY: str = "your-super-secret-jwt-key-change-me"
     JWT_LIFETIME_SECONDS: int = 3600
 
     # Melipayamak SMS
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     MELIPAYAMAK_USERNAME: str = ""
     MELIPAYAMAK_PASSWORD: str = ""
     MELIPAYAMAK_FROM_NUMBER: str = ""
+    MELIPAYAMAK_SENDER: str = ""
 
     # App
     APP_HOST: str = "0.0.0.0"

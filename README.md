@@ -15,12 +15,13 @@ Email + Password and SMS OTP authentication for FanoosAI platform.
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+cd backend
+uv sync
 ```
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill credentials
+1. Copy `backend/.env.example` to `backend/.env` and fill credentials
 2. Create PostgreSQL database:
 ```sql
 CREATE DATABASE fanoosai;
@@ -28,7 +29,8 @@ CREATE DATABASE fanoosai;
 3. Run the server:
 
 ```bash
-python scripts/auth_setup.py
+cd backend
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## API Endpoints
@@ -83,8 +85,11 @@ CREATE TABLE users (
 
 ```env
 DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/fanoosai
+JWT_SECRET_KEY=your-secret-key-here
 SECRET_KEY=your-secret-key-here
+JWT_LIFETIME_SECONDS=3600
 MELIPAYAMAK_USERNAME=your_username
 MELIPAYAMAK_PASSWORD=your_password
+MELIPAYAMAK_FROM_NUMBER=09123456789
 MELIPAYAMAK_SENDER=09123456789
 ```
