@@ -5,6 +5,8 @@ from fastapi_users import schemas
 
 class UserRead(schemas.BaseUser[int]):
     phone: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
 
 
 class UserCreate(schemas.BaseUserCreate):

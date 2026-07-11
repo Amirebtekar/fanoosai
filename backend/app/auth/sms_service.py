@@ -3,9 +3,6 @@ from app.core.config import settings
 
 # Melipayamak REST API
 # Docs: https://www.melipayamak.com/api/sendotp/
-SEND_OTP_URL = "https://rest.payamak-panel.com/api/SendSMS/SendOtp"
-
-
 class SMSClient:
     async def send_otp(self, phone: str, code: str) -> bool:
         """
@@ -22,7 +19,7 @@ class SMSClient:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    SEND_OTP_URL,
+                    settings.MELIPAYAMAK_SEND_OTP_URL,
                     data=payload,
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                 ) as resp:

@@ -9,6 +9,8 @@ class UserTable(Base, SQLAlchemyBaseUserTable):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str | None] = mapped_column(String(320), unique=True, nullable=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(1024))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
