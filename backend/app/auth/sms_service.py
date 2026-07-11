@@ -1,43 +1,43 @@
 import aiohttp
 from app.core.config import settings
 
+# Melipayamak REST API
+# Docs: https://www.melipayamak.com/api/sendotp/
+SEND_OTP_URL = "https://rest.payamak-panel.com/api/SendSMS/SendOtp"
 
-class MelipayamakClient:
-    def __init__(self):
-        self.base_url = settings.MELIPAYAMAK_BASE_URL
-        self.username = settings.MELIPAYAMAK_USERNAME
-        self.password = settings.MELIPAYAMAK_PASSWORD
-        self.from_number = settings.MELIPAYAMAK_FROM_NUMBER
 
-    async def send_otp(self, phone: str, otp_code: str) -> bool:
+class SMSClient:
+    async def send_otp(self, phone: str, code: str) -> bool:
         """
-        Send OTP code to phone number via Melipayamak API
+        Send OTP via Melipayamak SendOtp method.
+        Returns True if recId received (success).
         """
-        url = f"{self.base_url}/sms/send"
+        payload = aiohttp.FormData()
+        payload.add_field("username", settings.MELIPAYAMAK_USERNAME)
+        payload.add_field("password", settings.MELIPAYAMAK_PASSWORD)
+        payload.add_field("from", settings.MELIPAYAMAK_FROM_NUMBER)
+        payload.add_field("to", phone)
+        payload.add_field("code", code)  # int, sent as string in form-data
 
-        message = f"فانووس‌ای‌آی: کد تأیید شما: {otp_code}"
-        
-        payload = {
-            "username": self.username,
-            "password": self.password,
-            "from": self.from_number,
-            "to": phone,
-            "message": message,
-        }
-        
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload) as response:
-                    data = await response.json()
-                    if response.status == 200 and data.get("success", False):
-                        return True
-                    else:
-                        print(f"SMS API Error: {data}")
+                async with session.post(
+                    SEND_OTP_URL,
+                    data=payload,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                ) as resp:
+                    text = await resp.text()
+                    # recId = success (positive number)
+                    # 0 = wrong credentials, negative = error
+                    try:
+                        val = int(text.strip())
+                        return val > 0
+                    except ValueError:
+                        print(f"SMS unexpected response: {text}")
                         return False
         except Exception as e:
-            print(f"SMS sending error: {e}")
+            print(f"SMS error: {e}")
             return False
 
 
-# Singleton instance
-melipayamak_client = MelipayamakClient()
+sms_client = SMSClient()

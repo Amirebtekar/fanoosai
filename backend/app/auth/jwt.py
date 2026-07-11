@@ -1,6 +1,3 @@
-import jwt
-from datetime import datetime, timedelta
-from fastapi import Depends
 from fastapi_users.authentication import JWTStrategy
 from app.core.config import settings
 

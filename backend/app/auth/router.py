@@ -1,102 +1,107 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from app.auth.sms_service import melipayamak_client
-from app.auth.jwt import get_jwt_strategy
-from app.users.service import get_user_service, UserService
-from app.core.config import settings
 import random
 import time
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
+from app.auth.sms_service import sms_client
+from app.auth.jwt import get_jwt_strategy
+from app.auth.password import get_password_hash
+from app.database.models import UserTable, async_session_maker
 
 router = APIRouter(prefix="/auth/otp", tags=["otp"])
 
-# Simple in-memory OTP store: {phone: {"code": str, "expires_at": float}}
+# In-memory OTP store: {phone: {"code": str, "expires_at": float}}
 otp_store: dict[str, dict] = {}
+OTP_TTL = 120  # seconds
 
-OTP_EXPIRY_SECONDS = 120  # 2 minutes
 
-
-class OTPRequest(BaseModel):
+class PhoneBody(BaseModel):
     phone: str
 
 
-class OTPVerify(BaseModel):
+class VerifyBody(BaseModel):
     phone: str
     code: str
 
 
-def _generate_otp() -> str:
+def _generate() -> str:
     return str(random.randint(100000, 999999))
 
 
-def _store_otp(phone: str, code: str) -> None:
-    otp_store[phone] = {
-        "code": code,
-        "expires_at": time.time() + OTP_EXPIRY_SECONDS,
-    }
+def _store(phone: str, code: str):
+    otp_store[phone] = {"code": code, "expires_at": time.time() + OTP_TTL}
 
 
-def _verify_stored_otp(phone: str, code: str) -> bool:
+def _check(phone: str, code: str) -> bool:
     stored = otp_store.pop(phone, None)
-    if stored is None:
+    if not stored:
         return False
     if time.time() > stored["expires_at"]:
         return False
     return stored["code"] == code
 
 
+@router.post("/sms/register")
+async def register_sms(body: PhoneBody):
+    """Register user by phone (or find existing) and send OTP."""
+    async with async_session_maker() as session:
+        stmt = select(UserTable).where(UserTable.phone == body.phone)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            user = UserTable(
+                phone=body.phone,
+                email=None,
+                hashed_password=get_password_hash("sms-only"),
+                is_active=True,
+            )
+            session.add(user)
+            await session.commit()
+
+    code = _generate()
+    _store(body.phone, code)
+
+    # ponytail: in dev, return code in response. remove when real SMS works.
+    sent = await sms_client.send_otp(body.phone, code)
+    if not sent:
+        print(f"[DEV] OTP for {body.phone}: {code}")
+
+    return {"message": "OTP sent", "phone": body.phone, "_dev_code": code if not sent else None}
+
+
 @router.post("/sms/request")
-async def request_sms_otp(
-    body: OTPRequest,
-    user_service: UserService = Depends(get_user_service),
-):
-    """Send OTP code to phone number via SMS"""
-    user = await user_service.get_by_phone(body.phone)
+async def request_sms(body: PhoneBody):
+    """Send OTP to existing user."""
+    async with async_session_maker() as session:
+        stmt = select(UserTable).where(UserTable.phone == body.phone)
+        user = (await session.execute(stmt)).scalar_one_or_none()
+
     if not user:
-        raise HTTPException(status_code=404, detail="User not found with this phone number")
+        raise HTTPException(400, "User not found. Register first.")
 
-    otp_code = _generate_otp()
-    _store_otp(body.phone, otp_code)
+    code = _generate()
+    _store(body.phone, code)
 
-    success = await melipayamak_client.send_otp(body.phone, otp_code)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to send OTP")
+    sent = await sms_client.send_otp(body.phone, code)
+    if not sent:
+        print(f"[DEV] OTP for {body.phone}: {code}")
 
-    return {"message": "OTP sent successfully", "phone": body.phone}
+    return {"message": "OTP sent", "phone": body.phone, "_dev_code": code if not sent else None}
 
 
 @router.post("/sms/verify")
-async def verify_sms_otp(
-    body: OTPVerify,
-    user_service: UserService = Depends(get_user_service),
-):
-    """Verify OTP code and return JWT token"""
-    if not _verify_stored_otp(body.phone, body.code):
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP code")
+async def verify_sms(body: VerifyBody):
+    """Verify OTP → return JWT."""
+    if not _check(body.phone, body.code):
+        raise HTTPException(400, "Invalid or expired code")
 
-    user = await user_service.get_by_phone(body.phone)
+    async with async_session_maker() as session:
+        stmt = select(UserTable).where(UserTable.phone == body.phone)
+        user = (await session.execute(stmt)).scalar_one_or_none()
+
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(404, "User not found")
 
-    strategy = get_jwt_strategy()
-    token = await strategy.write_token(user)
-
+    token = await get_jwt_strategy().write_token(user)
     return {"access_token": token, "token_type": "bearer"}
-
-
-@router.post("/email/request")
-async def request_email_otp(
-    body: OTPRequest,
-    user_service: UserService = Depends(get_user_service),
-):
-    """Send OTP code to user's email"""
-    user = await user_service.get_by_phone(body.phone)
-    if not user or not user.email:
-        raise HTTPException(status_code=404, detail="User not found or no email set")
-
-    otp_code = _generate_otp()
-    _store_otp(body.phone, otp_code)
-
-    # TODO: Implement email sending (e.g., via SMTP or SendGrid)
-    print(f"[DEV] Email OTP for {user.email}: {otp_code}")
-
-    return {"message": "OTP sent to email", "phone": body.phone}
