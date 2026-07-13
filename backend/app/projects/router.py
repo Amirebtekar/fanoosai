@@ -12,6 +12,18 @@ from app.auth.fastapi_users import fastapi_users
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
+
+def _project_to_dict(project: Project) -> dict:
+    return {
+        "id": project.id,
+        "name": project.name,
+        "description": project.description,
+        "website_url": project.website_url,
+        "created_at": project.created_at,
+        "updated_at": project.updated_at,
+    }
+
+
 def get_project_service(
     session: AsyncSession = Depends(get_session)
 ) -> ProjectService:
@@ -33,8 +45,9 @@ async def create_project(
             user_id=current_user.id,
             name=project_data.name,
             description=project_data.description,
+            website_url=project_data.website_url,
         )
-        return ProjectRead.model_validate(project)
+        return ProjectRead.model_validate(_project_to_dict(project))
     except PermissionError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -52,7 +65,7 @@ async def list_projects(
     current_user: UserTable = Depends(get_current_user),
 ) -> List[ProjectRead]:
     projects = await service.list_user_projects(user_id=current_user.id)
-    return [ProjectRead.model_validate(p) for p in projects]
+    return [ProjectRead.model_validate(_project_to_dict(p)) for p in projects]
 
 @router.get("/{project_id}", response_model=ProjectRead)
 async def get_project(
@@ -62,7 +75,7 @@ async def get_project(
 ) -> ProjectRead:
     try:
         project = await service.get_project(project_id=project_id, user_id=current_user.id)
-        return ProjectRead.model_validate(project)
+        return ProjectRead.model_validate(_project_to_dict(project))
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -82,8 +95,9 @@ async def update_project(
             project=project,
             name=project_data.name,
             description=project_data.description,
+            website_url=project_data.website_url,
         )
-        return ProjectRead.model_validate(updated_project)
+        return ProjectRead.model_validate(_project_to_dict(updated_project))
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

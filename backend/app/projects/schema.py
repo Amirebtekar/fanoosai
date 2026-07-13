@@ -1,25 +1,27 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 from typing import Optional
 from datetime import datetime
-
 
 class ProjectBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200, description="Project name")
     description: Optional[str] = Field(
         None, max_length=1000, description="Project description (optional)"
     )
-
+    website_url: Optional[HttpUrl] = Field(
+        None, description="Project website URL (optional)"
+    )
 
 class ProjectCreate(ProjectBase):
     pass
-
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200, description="Project name")
     description: Optional[str] = Field(
         None, max_length=1000, description="Project description (optional)"
     )
-
+    website_url: Optional[HttpUrl] = Field(
+        None, description="Project website URL (optional)"
+    )
 
 class ProjectRead(ProjectBase):
     id: int

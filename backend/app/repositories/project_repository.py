@@ -6,8 +6,8 @@ class ProjectRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, user_id: int, name: str, description: str | None = None) -> Project:
-        project = Project(user_id=user_id, name=name, description=description)
+    async def create(self, user_id: int, name: str, description: str | None = None, website_url: str | None = None) -> Project:
+        project = Project(user_id=user_id, name=name, description=description, website_url=website_url)
         self.session.add(project)
         await self.session.commit()
         return project
@@ -22,11 +22,13 @@ class ProjectRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def update(self, project: Project, name: str | None = None, description: str | None = None) -> Project:
+    async def update(self, project: Project, name: str | None = None, description: str | None = None, website_url: str | None = None) -> Project:
         if name is not None:
             project.name = name
         if description is not None:
             project.description = description
+        if website_url is not None:
+            project.website_url = website_url
         await self.session.commit()
         return project
 

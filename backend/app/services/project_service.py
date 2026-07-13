@@ -13,7 +13,7 @@ class ProjectService:
         self.user_repo = user_repo
 
     async def create_project(
-        self, user_id: int, name: str, description: Optional[str] = None
+        self, user_id: int, name: str, description: Optional[str] = None, website_url: Optional[str] = None
     ) -> Project:
         # Guard: Check if user is verified
         user = await self.user_repo.get_by_id(user_id)
@@ -21,7 +21,7 @@ class ProjectService:
             raise PermissionError("User is not verified. Verification required to create projects.")
         
         # Create project
-        project = await self.project_repo.create(user_id=user_id, name=name, description=description)
+        project = await self.project_repo.create(user_id=user_id, name=name, description=description, website_url=website_url)
         logger.info(f"Project created: {project.id} by user {user_id}")
         return project
 
@@ -34,8 +34,8 @@ class ProjectService:
             raise ValueError("Project not found or access denied")
         return project
 
-    async def update_project(self, project: Project, name: Optional[str] = None, description: Optional[str] = None) -> Project:
-        return await self.project_repo.update(project=project, name=name, description=description)
+    async def update_project(self, project: Project, name: Optional[str] = None, description: Optional[str] = None, website_url: Optional[str] = None) -> Project:
+        return await self.project_repo.update(project=project, name=name, description=description, website_url=website_url)
 
     async def delete_project(self, project: Project) -> None:
         await self.project_repo.delete(project=project)
