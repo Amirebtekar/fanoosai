@@ -18,6 +18,8 @@ class AIModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     prompts: Mapped[list["PromptModel"]] = relationship("PromptModel", back_populates="model")
+    runs: Mapped[list["AIRun"]] = relationship("AIRun", back_populates="model")
+
 
 
 class PromptModel(Base):
@@ -30,6 +32,23 @@ class PromptModel(Base):
     
     prompt: Mapped["Prompt"] = relationship("Prompt", back_populates="models")
     model: Mapped["AIModel"] = relationship("AIModel", back_populates="prompts")
+
+
+class AIRun(Base):
+    __tablename__ = "ai_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prompt_id: Mapped[int] = mapped_column(Integer, ForeignKey("prompts.id"), nullable=False)
+    ai_model_id: Mapped[int] = mapped_column(Integer, ForeignKey("ai_models.id"), nullable=False)
+    request_text: Mapped[str] = mapped_column(Text, nullable=False)
+    response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    prompt: Mapped["Prompt"] = relationship("Prompt", back_populates="runs")
+    model: Mapped["AIModel"] = relationship("AIModel", back_populates="runs")
 
 
 class UserTable(Base, SQLAlchemyBaseUserTable):
@@ -76,6 +95,8 @@ class Prompt(Base):
         # Relationship to project
     project: Mapped[Project] = relationship("Project", back_populates="prompts")
     models: Mapped[list["PromptModel"]] = relationship("PromptModel", back_populates="prompt")
+    runs: Mapped[list["AIRun"]] = relationship("AIRun", back_populates="prompt")
+
 
 async def get_user_db() -> AsyncGenerator[SQLAlchemyUserDatabase, None]:
     async with async_session_maker() as session:
