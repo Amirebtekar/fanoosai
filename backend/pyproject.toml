@@ -12,8 +12,12 @@ dependencies = [
     "bcrypt==4.0.1",
     "aiohttp>=3.9.0",
     "setuptools>=68,<71",
+    "alembic>=1.13.0",
 ]
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

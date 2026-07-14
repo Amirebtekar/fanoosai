@@ -27,6 +27,7 @@ class AIRunRepository:
             request_text=request_text,
             response_text=response_text,
             status=status,
+            extraction_status="pending" if status == "success" else "failed",
             error_message=error_message,
             completed_at=now if status != "running" else None,
         )
@@ -34,6 +35,12 @@ class AIRunRepository:
         await self.session.commit()
         await self.session.refresh(run)
         return run
+
+    async def update_extraction(self, run: AIRun, status: str, error: str | None = None) -> None:
+        run.extraction_status = status
+        run.error_message = error
+        run.processed_at = datetime.now(timezone.utc)
+        await self.session.commit()
 
     async def get_by_prompt(self, prompt_id: int) -> list[AIRun]:
         stmt = (

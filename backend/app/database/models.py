@@ -1,6 +1,6 @@
 from typing import AsyncGenerator
 from datetime import datetime
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, UniqueConstraint, func, Text
+from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, UniqueConstraint, func, Text, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from fastapi_users.db import SQLAlchemyBaseUserTable, SQLAlchemyUserDatabase
 from app.database.connection import Base, async_session_maker
@@ -43,12 +43,16 @@ class AIRun(Base):
     request_text: Mapped[str] = mapped_column(Text, nullable=False)
     response_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
+    extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+        
     prompt: Mapped["Prompt"] = relationship("Prompt", back_populates="runs")
     model: Mapped["AIModel"] = relationship("AIModel", back_populates="runs")
+    brand_links: Mapped[list["RunBrand"]] = relationship("RunBrand", back_populates="ai_run")
 
 
 class UserTable(Base, SQLAlchemyBaseUserTable):
@@ -92,11 +96,42 @@ class Prompt(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
-        # Relationship to project
+        
+    # Relationship to project
     project: Mapped[Project] = relationship("Project", back_populates="prompts")
     models: Mapped[list["PromptModel"]] = relationship("PromptModel", back_populates="prompt")
     runs: Mapped[list["AIRun"]] = relationship("AIRun", back_populates="prompt")
 
+
+class Brand(Base):
+    __tablename__ = "brands"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    domain: Mapped[str | None] = mapped_column(String(500), unique=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    run_brands: Mapped[list["RunBrand"]] = relationship("RunBrand", back_populates="brand")
+
+class RunBrand(Base):
+    __tablename__ = "run_brands"
+    __table_args__ = (
+        UniqueConstraint("ai_run_id", "brand_id", name="uq_run_brand"),
+        Index("ix_run_brands_ai_run_id", "ai_run_id"),
+        Index("ix_run_brands_brand_id", "brand_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ai_run_id: Mapped[int] = mapped_column(Integer, ForeignKey("ai_runs.id"), nullable=False)
+    brand_id: Mapped[int] = mapped_column(Integer, ForeignKey("brands.id"), nullable=False)
+    raw_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    ai_run: Mapped["AIRun"] = relationship("AIRun", back_populates="brand_links")
+    brand: Mapped["Brand"] = relationship("Brand", back_populates="run_brands")
 
 async def get_user_db() -> AsyncGenerator[SQLAlchemyUserDatabase, None]:
     async with async_session_maker() as session:

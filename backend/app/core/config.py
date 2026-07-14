@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     JWT_LIFETIME_SECONDS: int = 3600
     AI_GATEWAY_BASE_URL: str = "https://my.parspack.com/api/aistudio/api"
     AI_GATEWAY_API_KEY: str = ""
+    BRAND_EXTRACTION_MODEL: str = "gpt-4o-mini"
 
     MELIPAYAMAK_USERNAME: str = ""
     MELIPAYAMAK_PASSWORD: str = ""
