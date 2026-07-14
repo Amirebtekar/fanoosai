@@ -95,7 +95,6 @@ async def update_project(
             project=project,
             name=project_data.name,
             description=project_data.description,
-            website_url=project_data.website_url,
         )
         return ProjectRead.model_validate(_project_to_dict(updated_project))
     except ValueError as e:

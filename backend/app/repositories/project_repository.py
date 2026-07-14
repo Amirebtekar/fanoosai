@@ -12,8 +12,10 @@ class ProjectRepository:
         await self.session.commit()
         return project
 
-    async def get_by_id(self, project_id: int, user_id: int) -> Project | None:
-        stmt = select(Project).where(Project.id == project_id, Project.user_id == user_id)
+    async def get_by_id(self, project_id: int, user_id: int | None = None) -> Project | None:
+        stmt = select(Project).where(Project.id == project_id)
+        if user_id is not None:
+            stmt = stmt.where(Project.user_id == user_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 

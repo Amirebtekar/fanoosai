@@ -34,8 +34,8 @@ class ProjectService:
             raise ValueError("Project not found or access denied")
         return project
 
-    async def update_project(self, project: Project, name: Optional[str] = None, description: Optional[str] = None, website_url: Optional[str] = None) -> Project:
-        return await self.project_repo.update(project=project, name=name, description=description, website_url=website_url)
+    async def update_project(self, project: Project, name: Optional[str] = None, description: Optional[str] = None) -> Project:
+        return await self.project_repo.update(project=project, name=name, description=description)
 
     async def delete_project(self, project: Project) -> None:
         await self.project_repo.delete(project=project)
