@@ -32,6 +32,19 @@ class PromptRepository:
         result = await self.session.execute(stmt)
         return set(result.scalars().all())
 
+    async def add_model(self, prompt_id: int, model_id: int) -> bool:
+        existing = await self.session.execute(
+            select(PromptModel.id).where(
+                PromptModel.prompt_id == prompt_id,
+                PromptModel.ai_model_id == model_id,
+            )
+        )
+        if existing.scalar_one_or_none() is not None:
+            return False
+        self.session.add(PromptModel(prompt_id=prompt_id, ai_model_id=model_id))
+        await self.session.commit()
+        return True
+
     async def remove_model(self, prompt_id: int, model_id: int) -> bool:
         result = await self.session.execute(
             delete(PromptModel).where(

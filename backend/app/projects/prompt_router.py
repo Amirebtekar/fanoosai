@@ -147,6 +147,31 @@ async def list_prompt_models(
             detail=str(e),
         )
 
+@router.post("/{prompt_id}/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def add_prompt_model(
+    project_id: int,
+    prompt_id: int,
+    model_id: int,
+    service: PromptService = Depends(get_prompt_service),
+    current_user: UserTable = Depends(get_current_user),
+) -> None:
+    try:
+        project_repo = ProjectRepository(service.prompt_repo.session)
+        project = await project_repo.get_by_id(project_id, current_user.id)
+        if not project:
+            raise ValueError("پروژه یافت نشد یا دسترسی ندارید")
+
+        prompt = await service.get_prompt(prompt_id)
+        if prompt.project_id != project_id:
+            raise ValueError("Prompt متعلق به این پروژه نیست")
+
+        await service.add_prompt_model(prompt_id, model_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
 @router.delete("/{prompt_id}/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_prompt_model(
     project_id: int,

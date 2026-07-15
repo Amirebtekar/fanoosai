@@ -6,10 +6,10 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost/fanoosai"
     JWT_SECRET_KEY: str = "change-me"
-    JWT_LIFETIME_SECONDS: int = 3600
+    JWT_LIFETIME_SECONDS: int = 36000
     AI_GATEWAY_BASE_URL: str = "https://my.parspack.com/api/aistudio/api"
     AI_GATEWAY_API_KEY: str = ""
-    BRAND_EXTRACTION_MODEL: str = "gpt-4o-mini"
+    BRAND_EXTRACTION_MODEL: str = "openai/gpt-4.1-mini"
 
     MELIPAYAMAK_USERNAME: str = ""
     MELIPAYAMAK_PASSWORD: str = ""

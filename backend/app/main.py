@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi_users.authentication import AuthenticationBackend, BearerTransport
 
 from app.core.config import settings
@@ -23,6 +24,29 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="FanoosAI", lifespan=lifespan)
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(title=app.title, version="1.0.0", routes=app.routes)
+    security_schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
+    security_schemes["HTTPBearer"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+    security_schemes.pop("OAuth2PasswordBearer", None)
+    for path in schema["paths"].values():
+        for operation in path.values():
+            for requirement in operation.get("security", []):
+                if "OAuth2PasswordBearer" in requirement:
+                    requirement["HTTPBearer"] = requirement.pop("OAuth2PasswordBearer")
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = custom_openapi
 
 app.add_middleware(
     CORSMiddleware,

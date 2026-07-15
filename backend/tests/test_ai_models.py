@@ -69,8 +69,25 @@ class FakePromptRepo:
     async def get_by_id(self, prompt_id):
         return Prompt(id=prompt_id, project_id=1, text="x", is_active=True)
 
+    async def active_model_ids(self, model_ids):
+        return {2} if model_ids == [2] else set()
+
+    async def add_model(self, prompt_id, model_id):
+        return prompt_id == 1 and model_id == 2
+
     async def remove_model(self, prompt_id, model_id):
         return prompt_id == 1 and model_id == 2
+
+async def test_add_prompt_model_requires_active_model_and_new_link():
+    service = PromptService(FakePromptRepo(), None)
+    await service.add_prompt_model(1, 2)
+    try:
+        await service.add_prompt_model(1, 3)
+    except ValueError as e:
+        assert str(e) == "مدل AI معتبر یا فعال نیست"
+    else:
+        raise AssertionError("expected inactive model to fail")
+    print("PASS: prompt model can be added and inactive models fail")
 
 async def test_remove_prompt_model_requires_existing_link():
     service = PromptService(FakePromptRepo(), None)
@@ -89,5 +106,6 @@ if __name__ == "__main__":
     asyncio.run(test_gateway_base_url_configured())
     asyncio.run(test_openai_models_payload_normalizes())
     asyncio.run(test_sync_gateway_models_saves_to_repo())
+    asyncio.run(test_add_prompt_model_requires_active_model_and_new_link())
     asyncio.run(test_remove_prompt_model_requires_existing_link())
     print("\nSelf-check complete.")

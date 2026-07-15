@@ -44,6 +44,13 @@ class PromptService:
     async def list_project_prompts(self, project_id: int, include_archived: bool = False) -> List[Prompt]:
         return await self.prompt_repo.list_by_project(project_id, include_archived)
 
+    async def add_prompt_model(self, prompt_id: int, model_id: int) -> None:
+        await self.get_prompt(prompt_id)
+        if await self.prompt_repo.active_model_ids([model_id]) != {model_id}:
+            raise ValueError("مدل AI معتبر یا فعال نیست")
+        if not await self.prompt_repo.add_model(prompt_id, model_id):
+            raise ValueError("این مدل قبلاً برای Prompt انتخاب شده است")
+
     async def remove_prompt_model(self, prompt_id: int, model_id: int) -> None:
         await self.get_prompt(prompt_id)
         if not await self.prompt_repo.remove_model(prompt_id, model_id):
