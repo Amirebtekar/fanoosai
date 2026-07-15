@@ -25,3 +25,6 @@ migrations/
 
 # Hermes
 .hermes/
+
+# Agent skills
+agent-skills/
