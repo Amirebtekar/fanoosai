@@ -3,6 +3,7 @@
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
+    DEBUG: bool = False
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost/fanoosai"
     JWT_SECRET_KEY: str = "change-me"
     JWT_LIFETIME_SECONDS: int = 3600
