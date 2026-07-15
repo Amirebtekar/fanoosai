@@ -14,6 +14,8 @@ from app.auth.fastapi_users import fastapi_users, jwt_backend
 from app.projects.router import router as projects_router
 from app.projects.prompt_router import router as prompts_router
 from app.projects.ai_models_router import router as ai_models_router
+from app.analytics.router import router as analytics_router
+from app.analytics.extra_router import router as analytics_extra_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +40,8 @@ app.include_router(otp_router)
 app.include_router(projects_router)
 app.include_router(prompts_router)
 app.include_router(ai_models_router)
+app.include_router(analytics_router)
+app.include_router(analytics_extra_router)
 
 @app.get("/")
 async def root():
