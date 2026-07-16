@@ -1,5 +1,5 @@
 """
-Runnable check for Swagger HTTPBearer security scheme.
+Runnable check for Swagger cookie security scheme.
 Run with: python backend/tests/test_openapi_httpbearer.py
 """
 
@@ -13,13 +13,12 @@ from app.main import app
 def main() -> None:
     schema = app.openapi()
     security_schemes = schema.get("components", {}).get("securitySchemes", {})
-    bearer = security_schemes.get("HTTPBearer")
+    bearer = security_schemes.get("APIKeyCookie")
 
-    assert bearer is not None, "HTTPBearer security scheme is missing from OpenAPI"
-    assert bearer.get("type") == "http"
-    assert bearer.get("scheme") == "bearer"
-    assert bearer.get("bearerFormat") == "JWT"
-    assert "OAuth2PasswordBearer" not in security_schemes
+    assert bearer is not None, "APIKeyCookie security scheme is missing from OpenAPI"
+    assert bearer.get("type") == "apiKey"
+    assert bearer.get("in") == "cookie"
+    assert bearer.get("name") == "access_token"
 
     protected_operations = [
         operation
@@ -28,8 +27,8 @@ def main() -> None:
         if operation.get("security")
     ]
     assert protected_operations, "No protected Swagger operations found"
-    assert all("HTTPBearer" in operation["security"][0] for operation in protected_operations)
-    print("PASS: protected Swagger operations use HTTPBearer")
+    assert all("APIKeyCookie" in operation["security"][0] for operation in protected_operations)
+    print("PASS: protected Swagger operations use APIKeyCookie")
 
 
 if __name__ == "__main__":

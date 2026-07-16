@@ -25,7 +25,7 @@ class AIService:
             payload["response_format"] = response_format
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.post(url, json=payload, timeout=60) as response:
-                body = await response.text()
                 if response.status >= 400:
-                    raise ValueError(body)
+                    raise ValueError("AI Gateway request failed")
+                body = await response.text()
                 return body

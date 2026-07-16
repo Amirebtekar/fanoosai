@@ -21,6 +21,14 @@ def filters(stmt, project_id, prompt_id=None, ai_model_id=None, start=None, end=
     if end is not None: stmt = stmt.where(AIRun.created_at <= end)
     return stmt
 
+async def owned_prompt(prompt_id: int, session: AsyncSession, user: UserTable) -> Prompt:
+    prompt = await session.scalar(
+        select(Prompt).join(Project).where(Prompt.id == prompt_id, Project.user_id == user.id)
+    )
+    if not prompt:
+        raise HTTPException(404, "Prompt not found")
+    return prompt
+
 @router.get("/projects/{project_id}/dashboard", response_model=DashboardSummary)
 async def dashboard(project_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     await owned_project(project_id, session, user)
@@ -66,10 +74,10 @@ async def brand_history(brand_id: int, project_id: int, prompt_id: int | None = 
 async def prompt_history(prompt_id: int, ai_model_id: int | None = None, start_date: datetime | None = None, end_date: datetime | None = None,
                          page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
                          session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
-    prompt = await session.scalar(select(Prompt).join(Project).where(Prompt.id == prompt_id, Project.user_id == user.id))
+    prompt = await owned_prompt(prompt_id, session, user)
     if not prompt: raise HTTPException(404, "Prompt یافت نشد")
     stmt = select(AIRun.id, AIModel.name, AIRun.created_at, AIRun.status, AIRun.extraction_status, func.count(RunBrand.id)).join(AIModel).outerjoin(RunBrand).where(AIRun.prompt_id == prompt_id)
-    stmt = filters(stmt, prompt_id=prompt_id, ai_model_id=ai_model_id, start=start_date, end=end_date)
+    stmt = filters(stmt, project_id=prompt.project_id, prompt_id=prompt_id, ai_model_id=ai_model_id, start=start_date, end=end_date)
     rows = (await session.execute(stmt.group_by(AIRun.id, AIModel.name).order_by(AIRun.created_at.desc()).offset((page-1)*page_size).limit(page_size))).all()
     total = await session.scalar(select(func.count()).select_from(AIRun).where(AIRun.prompt_id == prompt_id)) or 0
     items = [PromptHistoryItem(ai_run_id=i, ai_model=m, run_date=d, status=s, extraction_status=e, brands_count=c) for i,m,d,s,e,c in rows]
@@ -91,7 +99,7 @@ async def project_history(project_id: int, prompt_id: int | None = None, ai_mode
 async def latest_rankings(prompt_id: int, ai_model_id: int | None = None, brand_id: int | None = None,
                           page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
                           session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
-    prompt = await session.scalar(select(Prompt).join(Project).where(Prompt.id == prompt_id, Project.user_id == user.id))
+    prompt = await owned_prompt(prompt_id, session, user)
     if not prompt: raise HTTPException(404, "Prompt یافت نشد")
     stmt = select(RunBrand, Brand, AIModel, AIRun).join(Brand).join(AIRun).join(AIModel).where(AIRun.prompt_id == prompt_id).order_by(AIRun.created_at.desc())
     if ai_model_id is not None: stmt = stmt.where(AIRun.ai_model_id == ai_model_id)
@@ -112,6 +120,7 @@ async def brand_details(brand_id: int, session: AsyncSession = Depends(get_sessi
 
 @router.get("/prompts/{prompt_id}/rankings", response_model=list[PromptRankingItem])
 async def prompt_rankings(prompt_id:int, session:AsyncSession=Depends(get_session), user:UserTable=Depends(fastapi_users.current_user())):
+    await owned_prompt(prompt_id, session, user)
     stmt=select(RunBrand,Brand,AIModel,AIRun).join(Brand).join(AIRun).join(AIModel).where(AIRun.prompt_id==prompt_id).order_by(AIRun.created_at.desc())
     rows=(await session.execute(stmt)).all(); latest={}
     for link,brand,model,run in rows: latest.setdefault((run.ai_model_id,brand.id),(link,brand,model,run))

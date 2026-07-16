@@ -13,6 +13,18 @@ async def owner(project_id, session, user):
     if not await session.scalar(select(Project.id).where(Project.id == project_id, Project.user_id == user.id)):
         raise HTTPException(404, "پروژه یافت نشد")
 
+async def owned_brand(brand_id: int, session: AsyncSession, user: UserTable) -> None:
+    stmt = (
+        select(Brand.id)
+        .join(RunBrand)
+        .join(AIRun)
+        .join(Prompt)
+        .join(Project)
+        .where(Brand.id == brand_id, Project.user_id == user.id)
+    )
+    if not await session.scalar(stmt):
+        raise HTTPException(404, "Brand not found")
+
 @router.get("/projects/{project_id}/runs", response_model=Page)
 async def runs(project_id: int, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     await owner(project_id, session, user)
@@ -24,7 +36,8 @@ async def runs(project_id: int, page: int = Query(1, ge=1), page_size: int = Que
 
 @router.get("/brands/{brand_id}", response_model=BrandDetails)
 async def details(brand_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
-    stmt = select(Brand, func.count(RunBrand.id), func.avg(RunBrand.rank), func.min(RunBrand.rank), func.max(RunBrand.rank), func.min(RunBrand.created_at), func.max(RunBrand.created_at)).join(RunBrand).join(AIRun).join(Prompt).where(Brand.id == brand_id).group_by(Brand.id)
+    await owned_brand(brand_id, session, user)
+    stmt = select(Brand, func.count(RunBrand.id), func.avg(RunBrand.rank), func.min(RunBrand.rank), func.max(RunBrand.rank), func.min(RunBrand.created_at), func.max(RunBrand.created_at)).join(RunBrand).join(AIRun).join(Prompt).join(Project).where(Brand.id == brand_id, Project.user_id == user.id).group_by(Brand.id)
     row = (await session.execute(stmt)).one_or_none()
     if not row: raise HTTPException(404, "برند یافت نشد")
     b, count, avg, best, worst, first, last = row

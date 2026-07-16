@@ -25,8 +25,7 @@ class AIModelService:
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url, timeout=20) as response:
                 if response.status >= 400:
-                    detail = await response.text()
-                    raise ValueError(f"خطا در دریافت مدل‌ها از AI Gateway: {detail}")
+                    raise ValueError("AI Gateway model listing failed")
                 payload = await response.json()
 
         return self._normalize_gateway_models(payload)

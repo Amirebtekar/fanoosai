@@ -1,5 +1,5 @@
 import re
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
@@ -50,7 +50,7 @@ class VerifyBody(LoginBody):
 
 class VerifyResponse(BaseModel):
     success: bool = True
-    access_token: str
+    access_token: str | None = None
     token_type: str = "bearer"
     user: UserRead | None = None
 
@@ -72,9 +72,18 @@ async def request_sms(body: LoginBody, service: AuthService = Depends(get_auth_s
 
 
 @router.post("/sms/verify", response_model=VerifyResponse)
-async def verify_sms(body: VerifyBody, service: AuthService = Depends(get_auth_service)):
+async def verify_sms(body: VerifyBody, response: Response, service: AuthService = Depends(get_auth_service)):
     user = await service.verify_sms(body.phone, body.code)
     token = await get_jwt_strategy().write_token(user)
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        max_age=settings.JWT_LIFETIME_SECONDS,
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite="lax",
+        path="/",
+    )
     if settings.DEBUG:
-        return {"success": True, "access_token": token, "token_type": "bearer", "user": user}
-    return {"access_token": token, "token_type": "bearer"}
+        return {"success": True, "token_type": "bearer", "user": user}
+    return {"success": True, "token_type": "bearer"}

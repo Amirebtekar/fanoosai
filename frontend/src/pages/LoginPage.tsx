@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+﻿import { useState, useRef, useCallback } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { requestSms, verifySms, getErrorMessage } from '../lib/api'
 
 const PERSIAN_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹']
 function toPersianDigits(s: string | number) {
@@ -9,6 +10,7 @@ function toPersianDigits(s: string | number) {
 const PHONE_REGEX = /^09[0-9]{9}$/
 
 export default function LoginPage() {
+  const navigate = useNavigate()
   const [step, setStep] = useState<'phone' | 'otp'>('phone')
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
@@ -47,14 +49,17 @@ export default function LoginPage() {
     if (errs.length) return
 
     setLoading(true)
-    // Simulate API call
-    await new Promise(r => setTimeout(r, 1500))
-    setLoading(false)
-
-    setStep('otp')
-    startCountdown()
-    setSuccess(`کد تایید به شماره ${toPersianDigits(phone.slice(0, 4))}****${toPersianDigits(phone.slice(-2))} ارسال شد`)
-    setTimeout(() => otpRefs.current[0]?.focus(), 100)
+    try {
+      await requestSms({ phone })
+      setStep('otp')
+      startCountdown()
+      setSuccess(`کد تایید به شماره ${toPersianDigits(phone.slice(0, 4))}****${toPersianDigits(phone.slice(-2))} ارسال شد`)
+      setTimeout(() => otpRefs.current[0]?.focus(), 100)
+    } catch (e) {
+      setError(getErrorMessage(e, 'خطا در ارسال کد تایید'))
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleOtpChange = (idx: number, value: string) => {
@@ -93,20 +98,32 @@ export default function LoginPage() {
     if (code.length !== 6) return
 
     setLoading(true)
-    // Simulate API call
-    await new Promise(r => setTimeout(r, 1500))
-    setLoading(false)
-
-    setSuccess('ورود با موفقیت انجام شد!')
-    // navigate to dashboard after delay
+    try {
+      const res = await verifySms({ phone, code })
+      if (res.user) localStorage.setItem('user', JSON.stringify(res.user))
+      setSuccess('ورود با موفقیت انجام شد!')
+      setTimeout(() => navigate('/'), 1200)
+    } catch (e) {
+      setError(getErrorMessage(e, 'کد وارد شده صحیح نیست'))
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleResend = () => {
+  const handleResend = async () => {
     clearAlerts()
-    setSuccess('کد تایید مجدداً ارسال شد')
-    startCountdown()
-    setOtp(['', '', '', '', '', ''])
-    otpRefs.current[0]?.focus()
+    setLoading(true)
+    try {
+      await requestSms({ phone })
+      setSuccess('کد تایید مجدداً ارسال شد')
+      startCountdown()
+      setOtp(['', '', '', '', '', ''])
+      otpRefs.current[0]?.focus()
+    } catch (e) {
+      setError(getErrorMessage(e, 'خطا در ارسال مجدد کد'))
+    } finally {
+      setLoading(false)
+    }
   }
 
   const backToPhone = () => {
@@ -120,38 +137,37 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-col min-h-screen lg:flex-row">
+      <a href="#login-form" className="skip-link">رفتن به فرم ورود</a>
+
       {/* Desktop brand panel */}
       <aside
-        className="hidden lg:flex lg:w-[46%] bg-surface border-r-[3px] border-border items-center justify-center relative overflow-hidden"
+        className="hidden lg:flex lg:w-[46%] bg-surface border-s-[3px] border-border items-center justify-center relative overflow-hidden"
         aria-hidden="true"
       >
         <div className="relative w-full h-full flex items-center justify-center p-12">
-          <div
-            className="w-full max-w-[520px] aspect-[4/3] bg-gradient-to-br from-[#B8F0D8] via-[#A8DFF0] to-[#D4C5F9] border-[3px] border-border shadow-[6px_6px_0_#1A1A1A] flex flex-col items-center justify-center p-10 text-center"
-            role="img"
-            aria-label="پلتفرم مدیریت پرامپت"
-          >
-            <span className="text-5xl mb-4">🧠</span>
-            <span className="text-lg font-bold text-muted">مدیریت هوشمند پرامپت‌ها</span>
-          </div>
-          <div className="absolute bottom-8 left-8 w-[50px] h-[50px] border-b-[3px] border-l-[3px] border-border" aria-hidden="true" />
-          <div className="absolute top-8 right-8 w-[50px] h-[50px] border-t-[3px] border-r-[3px] border-border" aria-hidden="true" />
+          <img
+            src="/brand-login.png"
+            alt="پلتفرم دیدار — داشبورد دیدپذیری هوش مصنوعی"
+            className="w-full max-w-[520px] max-h-[70vh] object-contain border-[3px] border-border shadow-[6px_6px_0_#1A1A1A] block"
+          />
+          <div className="absolute bottom-8 start-8 w-[50px] h-[50px] border-b-[3px] border-s-[3px] border-border" aria-hidden="true" />
+          <div className="absolute top-8 end-8 w-[50px] h-[50px] border-t-[3px] border-e-[3px] border-border" aria-hidden="true" />
         </div>
       </aside>
 
       {/* Form panel */}
       <main className="flex-1 flex flex-col items-center justify-center px-5 py-10 lg:py-16 lg:px-16" role="main">
-        <div className="w-full max-w-[420px]">
+        <div className="w-full max-w-[420px]" id="login-form">
           {/* Mobile brand */}
-          <div className="lg:hidden flex items-center justify-center gap-2 mb-2" aria-hidden="true">
+          <div className="lg:hidden flex items-center justify-center gap-2.5 mb-2" aria-hidden="true">
             <span className="w-[10px] h-[10px] bg-accent-neon border-2 border-border" />
-            <span className="text-2xl font-black tracking-tight">مدیریت پرامپت</span>
+            <span className="text-2xl font-black tracking-tight">دیدار</span>
           </div>
           <p className="lg:hidden text-center text-muted font-semibold text-sm mb-8">
-            سامانه مدیریت پرامپت
+            دیدپذیری هوش مصنوعی برای برند شما
           </p>
 
-          <h1 className="text-2xl font-black mb-1">ورود به حساب</h1>
+          <h1 className="text-[1.6rem] font-black mb-1.5">ورود به حساب</h1>
           <p className="text-muted font-medium text-sm mb-7">
             شماره موبایل خود را وارد کنید تا کد تایید برایتان ارسال شود
           </p>
@@ -194,7 +210,7 @@ export default function LoginPage() {
                 </div>
                 <div className="form-error" role="alert">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  <span>شماره موبایل صحیح وارد کنید</span>
+                  <span>شماره موبایل صحیح وارد کنید (مثال: ۰۹۱۲۱۲۳۴۵۶۷)</span>
                 </div>
               </div>
               <button
@@ -223,7 +239,7 @@ export default function LoginPage() {
                   کد ۶ رقمی را وارد کنید
                 </label>
                 <div
-                  className="flex gap-2 justify-center"
+                  className="flex gap-[10px] justify-center"
                   role="group"
                   aria-labelledby="otp-label"
                   dir="ltr"
@@ -256,7 +272,7 @@ export default function LoginPage() {
               </div>
               <button
                 type="button"
-                className="bg-none border-none text-fg font-bold text-sm underline underline-offset-[3px] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed mx-auto block mb-5"
+                className="bg-none border-none text-fg font-extrabold text-[0.85rem] underline underline-offset-[3px] cursor-pointer hover:text-accent-neon disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline mx-auto block mb-5"
                 onClick={handleResend}
                 disabled={countdown > 0}
               >

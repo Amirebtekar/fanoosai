@@ -25,23 +25,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FanoosAI", lifespan=lifespan)
 
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    if not settings.DEBUG:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
 
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
     schema = get_openapi(title=app.title, version="1.0.0", routes=app.routes)
-    security_schemes = schema.setdefault("components", {}).setdefault("securitySchemes", {})
-    security_schemes["HTTPBearer"] = {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-    }
-    security_schemes.pop("OAuth2PasswordBearer", None)
-    for path in schema["paths"].values():
-        for operation in path.values():
-            for requirement in operation.get("security", []):
-                if "OAuth2PasswordBearer" in requirement:
-                    requirement["HTTPBearer"] = requirement.pop("OAuth2PasswordBearer")
     app.openapi_schema = schema
     return schema
 
@@ -50,10 +48,10 @@ app.openapi = custom_openapi
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8000"],
+    allow_origins=[origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-CSRF-Token"],
 )
 
 app.include_router(fastapi_users.get_auth_router(jwt_backend), prefix="/auth/jwt", tags=["auth"])

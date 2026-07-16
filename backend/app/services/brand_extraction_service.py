@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -41,6 +42,7 @@ EXTRACTION_RESPONSE_FORMAT = {
     },
 }
 _ROOT_DOMAIN = re.compile(r"^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$", re.I)
+logger = logging.getLogger(__name__)
 
 class BrandExtractionValidationError(ValueError):
     """The extraction model returned JSON outside the extraction contract."""
@@ -61,14 +63,12 @@ class BrandExtractionService:
         self.ai_gateway = ai_gateway
 
     async def extract(self, response_text: str) -> ExtractionResult:
-        print("[brand-extraction] input response_text:", response_text)
         prompt = EXTRACTION_PROMPT.format(response_text=response_text)
         raw = await self.ai_gateway.run_prompt(
             settings.BRAND_EXTRACTION_MODEL,
             prompt,
             response_format=EXTRACTION_RESPONSE_FORMAT,
         )
-        print("[brand-extraction] raw output:", raw)
         return self._parse(raw)
 
     @staticmethod
@@ -87,8 +87,6 @@ class BrandExtractionService:
 
         if isinstance(payload, list):
             payload = {"brands": payload}
-
-        print("[brand-extraction] normalized payload:", json.dumps(payload, ensure_ascii=False, indent=2))
 
         if not isinstance(payload, dict) or not isinstance(payload.get("brands"), list):
             raise BrandExtractionValidationError("فیلد brands باید آرایه باشد")

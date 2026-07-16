@@ -1,5 +1,8 @@
 import aiohttp
+import logging
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Melipayamak REST API
 # Docs: https://www.melipayamak.com/api/sendotp/
@@ -30,10 +33,10 @@ class SMSClient:
                         val = int(text.strip())
                         return val > 0
                     except ValueError:
-                        print(f"SMS unexpected response: {text}")
+                        logger.warning("SMS provider returned an invalid response")
                         return False
-        except Exception as e:
-            print(f"SMS error: {e}")
+        except Exception:
+            logger.exception("SMS provider request failed")
             return False
 
 
