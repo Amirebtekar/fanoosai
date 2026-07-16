@@ -24,7 +24,9 @@ class SMSClient:
 
         if not isinstance(payload, dict):
             return False
-        for key in ("recId", "rec_id", "messageId", "message_id"):
+        # Melipayamak integrations may wrap the recipient id in `Value`.
+        # Keep the parser strict: only a positive numeric id is success.
+        for key in ("recId", "rec_id", "messageId", "message_id", "Value", "value"):
             candidate = payload.get(key)
             if candidate is not None:
                 try:
@@ -57,8 +59,9 @@ class SMSClient:
                     success = resp.status < 400 and self._is_success_response(text)
                     if not success:
                         logger.warning(
-                            "SMS provider rejected request",
-                            extra={"status_code": resp.status, "response_length": len(text)},
+                            "SMS provider rejected request: status_code=%s response_length=%s",
+                            resp.status,
+                            len(text),
                         )
                     return success
         except Exception:

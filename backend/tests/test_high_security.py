@@ -38,5 +38,7 @@ def test_sms_response_parser_accepts_provider_success_shapes():
 
     assert SMSClient._is_success_response("123456")
     assert SMSClient._is_success_response('{"recId": 123456}')
+    assert SMSClient._is_success_response('{"Value": "123456", "RetStatus": 1}')
     assert not SMSClient._is_success_response("0")
+    assert not SMSClient._is_success_response('{"Value": "-1", "RetStatus": 0}')
     assert not SMSClient._is_success_response("invalid response")
