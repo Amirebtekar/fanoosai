@@ -61,14 +61,14 @@ def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthServic
 
 @router.post("/sms/register")
 async def register_sms(body: RegisterBody, service: AuthService = Depends(get_auth_service)):
-    dev_code = await service.register_sms(body.phone, body.first_name, body.last_name, body.email)
-    return {"message": "OTP sent", "phone": body.phone, "_dev_code": dev_code or None}
+    await service.register_sms(body.phone, body.first_name, body.last_name, body.email)
+    return {"message": "OTP sent", "phone": body.phone}
 
 
 @router.post("/sms/request")
 async def request_sms(body: LoginBody, service: AuthService = Depends(get_auth_service)):
-    dev_code = await service.request_sms(body.phone)
-    return {"message": "OTP sent", "phone": body.phone, "_dev_code": dev_code or None}
+    await service.request_sms(body.phone)
+    return {"message": "OTP sent", "phone": body.phone}
 
 
 @router.post("/sms/verify", response_model=VerifyResponse)
