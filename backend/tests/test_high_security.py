@@ -31,3 +31,12 @@ def test_default_cors_allows_supported_local_frontend_origins():
     assert "http://localhost:3000" in config
     assert "http://localhost:5173" in config
     assert "http://localhost:5174" in config
+
+
+def test_sms_response_parser_accepts_provider_success_shapes():
+    from app.auth.sms_service import SMSClient
+
+    assert SMSClient._is_success_response("123456")
+    assert SMSClient._is_success_response('{"recId": 123456}')
+    assert not SMSClient._is_success_response("0")
+    assert not SMSClient._is_success_response("invalid response")
