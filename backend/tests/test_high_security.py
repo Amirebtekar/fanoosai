@@ -30,3 +30,4 @@ def test_default_cors_allows_supported_local_frontend_origins():
     config = (ROOT / "backend/app/core/config.py").read_text(encoding="utf-8")
     assert "http://localhost:3000" in config
     assert "http://localhost:5173" in config
+    assert "http://localhost:5174" in config
