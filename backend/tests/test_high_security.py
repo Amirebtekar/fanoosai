@@ -20,7 +20,7 @@ def test_analytics_queries_enforce_resource_ownership():
 
 def test_frontend_uses_http_only_cookie_auth_contract():
     api = (ROOT / "frontend/src/lib/api.ts").read_text(encoding="utf-8")
-    app = (ROOT / "frontend/src/App.tsx").read_text(encoding="utf-8")
+    app = (ROOT / "frontend/src/stores/auth-store.ts").read_text(encoding="utf-8")
     assert "credentials: 'include'" in api
     assert "localStorage.getItem('access_token')" not in api
     assert "localStorage.getItem('access_token')" not in app

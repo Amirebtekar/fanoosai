@@ -1,11 +1,11 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 
-from app.database.models import AIRun, DailyPromptRun
+from app.database.models import AIRun, DailyPromptRun, Prompt
 
 
 class AIRunRepository:
@@ -33,6 +33,9 @@ class AIRunRepository:
             completed_at=now if status != "running" else None,
         )
         self.session.add(run)
+        await self.session.execute(
+            update(Prompt).where(Prompt.id == prompt_id).values(last_run_at=now)
+        )
         await self.session.commit()
         await self.session.refresh(run)
         return run

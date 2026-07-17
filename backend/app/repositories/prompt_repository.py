@@ -23,7 +23,6 @@ class PromptRepository:
             select(Prompt)
             .options(
                 selectinload(Prompt.models).selectinload(PromptModel.model),
-                selectinload(Prompt.runs),
             )
             .where(Prompt.id == prompt_id)
         )
@@ -73,7 +72,6 @@ class PromptRepository:
             select(Prompt)
             .options(
                 selectinload(Prompt.models).selectinload(PromptModel.model),
-                selectinload(Prompt.runs),
             )
             .where(Prompt.project_id == project_id)
         )

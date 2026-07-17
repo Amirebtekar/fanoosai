@@ -51,7 +51,7 @@ def prompt_read(prompt: Prompt) -> PromptRead:
         is_active=prompt.is_active,
         created_at=prompt.created_at,
         updated_at=prompt.updated_at,
-        last_run_at=max((run.created_at for run in prompt.runs), default=None),
+        last_run_at=prompt.last_run_at,
         models=[AIModelRead.model_validate(link.model) for link in prompt.models],
     )
 

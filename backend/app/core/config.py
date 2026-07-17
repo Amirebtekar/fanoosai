@@ -15,6 +15,17 @@ class Settings(BaseSettings):
     BRAND_EXTRACTION_MODEL: str = "openai/gpt-4.1-mini"
     RUN_TIMEZONE: str = "Asia/Tehran"
     AUTOMATIC_RUN_INTERVAL_SECONDS: int = 60
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_QUEUE_NAME: str = "fanoosai:prompt-runs"
+    REDIS_QUEUE_GROUP: str = "fanoosai-workers"
+    REDIS_JOB_MAX_RETRIES: int = 3
+    RUN_RETENTION_DAYS: int = 365
+    TREND_MAX_POINTS_PER_SERIES: int = 365
+    ANALYTICS_PROMPT_LIMIT: int = 1000
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT_SECONDS: int = 10
+    DB_POOL_RECYCLE_SECONDS: int = 1800
 
     MELIPAYAMAK_USERNAME: str = ""
     MELIPAYAMAK_PASSWORD: str = ""

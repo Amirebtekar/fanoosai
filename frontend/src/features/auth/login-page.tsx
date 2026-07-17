@@ -9,7 +9,8 @@ const PHONE_REGEX = /^09[0-9]{9}$/
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const { setUser, setToken } = useAuthStore()
+  const { setUser } = useAuthStore()
+  const setToken = (_token: string) => undefined
   const [step, setStep] = useState<'phone' | 'otp'>('phone')
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState(['', '', '', '', '', ''])

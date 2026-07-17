@@ -179,3 +179,60 @@
 - **Verification:**
   - Deployment runs without errors
 - **Dependencies:** Task 13
+# Scalability Redesign Plan
+
+## Overview
+
+Replace the in-process daily runner with a Redis-backed queue and separate worker, make database access migration- and index-driven, bound analytics queries, move distributed state to Redis, and add security/operational telemetry. The existing MVP remains the rollback point.
+
+## Architecture Decisions
+
+- Use Redis Lists for the first queue slice to avoid introducing a second job framework; workers use blocking pop and reclaimable job state.
+- Keep the database unique daily claim as the final correctness guard. Redis locks reduce duplicate enqueue work but are not the source of truth.
+- Run the web API, scheduler, and worker as separate processes.
+- Use Alembic for schema changes; application startup will no longer perform data cleanup or schema creation.
+- Keep metrics labels bounded to route/status/provider and never include user IDs or prompt text.
+
+## Task List
+
+### Phase 1: Queue and distributed state
+
+- [ ] Add Redis configuration and a shared async Redis client.
+- [ ] Add queue payloads, scheduler process, worker process, and worker-safe single-model execution.
+- [ ] Move OTP, send throttling, verify-attempt counters, and daily enqueue locks to Redis.
+- [ ] Remove the automatic task from the web lifespan and document process commands.
+
+### Phase 2: Database and analytics
+
+- [ ] Enable Alembic metadata and add migrations for daily claims, indexes, and run storage strategy.
+- [ ] Add indexes for ownership, prompt/model lookups, and time-ordered runs.
+- [ ] Add a bounded retention/archival policy and PostgreSQL partitioning migration for `ai_runs`.
+- [ ] Replace analytics N+1 and in-memory unbounded queries with grouped SQL and bounded pagination.
+
+### Phase 3: Network and operations
+
+- [ ] Add shared HTTP client lifecycle, bounded timeouts, retry/backoff, and provider metrics.
+- [ ] Add JSON request logging with request IDs, RED metrics, queue metrics, and health endpoints.
+- [ ] Add Prometheus alert rules and a short runbook.
+- [ ] Replace browser token storage with HttpOnly cookie-only auth and add CSP.
+
+### Phase 4: Verification
+
+- [ ] Add unit/integration tests for queue idempotency, Redis state, migration indexes, auth cookies, and analytics query bounds.
+- [ ] Add load-test scenarios for 100, 1,000, and 10,000 virtual users with documented thresholds.
+- [ ] Run the tests and load tests against a representative PostgreSQL/Redis environment.
+
+## Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Redis outage | Jobs/auth throttles unavailable | Explicit health checks, retryable queue, production startup validation, and clear degraded mode for local development |
+| Worker crash after external call | Duplicate or lost work | Database daily claim, job status/reclaim policy, and idempotent persistence |
+| Existing large `ai_runs` table | Migration downtime | Expand/contract migration and partitioning runbook; measure table size first |
+| Analytics query rewrite changes results | Incorrect dashboard | Preserve response contracts and add fixture-based query tests |
+
+## Open Questions
+
+- Production PostgreSQL version and whether native partitioning is available.
+- Production Redis deployment (single instance, Sentinel, or managed Redis).
+- Target SLOs for API p95 latency and daily-run completion time.

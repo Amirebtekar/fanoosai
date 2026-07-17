@@ -51,7 +51,7 @@ async def test_fixed_otp_is_available_only_for_configured_debug_phone(monkeypatc
 
     await service.request_sms("09101418818")
 
-    assert service.otp_store.check("09101418818", "123456")
+    assert await service.otp_store.check("09101418818", "123456")
 
 
 def test_fixed_otp_is_disabled_when_debug_is_false(monkeypatch):

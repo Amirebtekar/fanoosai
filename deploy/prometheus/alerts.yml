@@ -1,0 +1,19 @@
+groups:
+  - name: fanoosai
+    rules:
+      - alert: FanoosaiApiErrorRateHigh
+        expr: sum(rate(fanoosai_http_requests_total{status_class=~"5xx"}[5m])) / sum(rate(fanoosai_http_requests_total[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: FanoosAI API error rate is above 1%
+          runbook: docs/runbooks/fanoosai-api-errors.md
+      - alert: FanoosaiAiProviderErrors
+        expr: sum(rate(fanoosai_ai_requests_total{status="error"}[10m])) > 0.1
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: AI provider failures are elevated
+          runbook: docs/runbooks/fanoosai-ai-provider.md

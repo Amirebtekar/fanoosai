@@ -42,9 +42,7 @@ export function verifySms(body: VerifyBody): Promise<VerifyResponse> { return re
 export function getCurrentUser(): Promise<UserInfo> { return authRequest('GET', '/auth/me') }
 
 function authRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const token = localStorage.getItem('access_token')
   const headers: Record<string, string> = {}
-  if (token) headers['Authorization'] = 'Bearer ' + token
   if (body) headers['Content-Type'] = 'application/json'
   return raw<T>(method, path, headers, body)
 }
@@ -53,7 +51,7 @@ async function raw<T>(method: string, path: string, headers: Record<string, stri
   const res = await fetch(API_BASE + path, { credentials: 'include', method, headers, body: body ? JSON.stringify(body) : undefined })
   if (!res.ok) {
     let detail: unknown; try { detail = await res.json() } catch { detail = res.statusText }
-    if (res.status === 401) { localStorage.removeItem('user'); localStorage.removeItem('access_token'); window.location.href = '/sign-in' }
+    if (res.status === 401) { localStorage.removeItem('user'); window.location.href = '/sign-in' }
     throw new ApiError(res.status, detail)
   }
   if (res.status === 204) return undefined as T

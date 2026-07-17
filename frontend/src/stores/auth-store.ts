@@ -14,7 +14,6 @@ interface UserInfo {
 interface AuthState {
   user: UserInfo | null
   setUser: (user: UserInfo | null) => void
-  getToken: () => string | null
   setToken: (token: string) => void
   clearAuth: () => void
   isAuthenticated: () => boolean
@@ -30,12 +29,10 @@ export const useAuthStore = create<AuthState>()((set) => ({
     else localStorage.removeItem('user')
     set({ user })
   },
-  getToken: () => localStorage.getItem('access_token'),
-  setToken: (token) => localStorage.setItem('access_token', token),
+  setToken: () => undefined,
   clearAuth: () => {
-    localStorage.removeItem('access_token')
     localStorage.removeItem('user')
     set({ user: null })
   },
-  isAuthenticated: () => !!localStorage.getItem('access_token'),
+  isAuthenticated: () => false,
 }))

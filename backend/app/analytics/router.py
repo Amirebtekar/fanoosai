@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_session
+from app.core.config import settings
 from app.auth.fastapi_users import fastapi_users
 from app.database.models import Project, Prompt, PromptModel, AIModel, AIRun, Brand, RunBrand, UserTable
 from app.analytics.schema import *
@@ -48,13 +49,59 @@ async def dashboard(project_id: int, session: AsyncSession = Depends(get_session
 @router.get("/projects/{project_id}/prompts", response_model=list[PromptAnalytics])
 async def prompt_analytics(project_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     await owned_project(project_id, session, user)
-    prompts = (await session.execute(select(Prompt).where(Prompt.project_id == project_id).order_by(Prompt.id))).scalars().all()
-    result=[]
-    for p in prompts:
-        runs=(await session.execute(select(AIRun).where(AIRun.prompt_id==p.id).order_by(AIRun.created_at.desc()))).scalars().all()
-        models=(await session.execute(select(AIModel.name).join(PromptModel).where(PromptModel.prompt_id==p.id))).scalars().all()
-        brands=await session.scalar(select(func.count(distinct(RunBrand.brand_id))).join(AIRun).where(AIRun.prompt_id==p.id)) or 0
-        result.append(PromptAnalytics(prompt_id=p.id,prompt=p.text,models=list(models),run_count=len(runs),last_run=runs[0].created_at if runs else None,brands_extracted=brands,last_status=runs[0].status if runs else None))
+    latest_run = (
+        select(
+            AIRun.prompt_id,
+            AIRun.status,
+            func.row_number().over(
+                partition_by=AIRun.prompt_id,
+                order_by=(AIRun.created_at.desc(), AIRun.id.desc()),
+            ).label("row_number"),
+        )
+        .subquery()
+    )
+    summary = (
+        select(
+            Prompt.id,
+            Prompt.text,
+            func.count(distinct(AIRun.id)).label("run_count"),
+            func.max(AIRun.created_at).label("last_run"),
+            func.count(distinct(RunBrand.brand_id)).label("brands_extracted"),
+            latest_run.c.status.label("last_status"),
+        )
+        .outerjoin(AIRun, AIRun.prompt_id == Prompt.id)
+        .outerjoin(RunBrand, RunBrand.ai_run_id == AIRun.id)
+        .outerjoin(
+            latest_run,
+            (latest_run.c.prompt_id == Prompt.id) & (latest_run.c.row_number == 1),
+        )
+        .where(Prompt.project_id == project_id)
+        .group_by(Prompt.id, Prompt.text, latest_run.c.status)
+        .order_by(Prompt.id)
+        .limit(settings.ANALYTICS_PROMPT_LIMIT)
+    )
+    model_rows = await session.execute(
+        select(PromptModel.prompt_id, AIModel.name)
+        .join(AIModel, AIModel.id == PromptModel.ai_model_id)
+        .join(Prompt, Prompt.id == PromptModel.prompt_id)
+        .where(Prompt.project_id == project_id)
+        .order_by(PromptModel.prompt_id, AIModel.name)
+    )
+    models_by_prompt: dict[int, list[str]] = {}
+    for prompt_id, model_name in model_rows:
+        models_by_prompt.setdefault(prompt_id, []).append(model_name)
+
+    result = []
+    for prompt_id, text, run_count, last_run, brands_extracted, last_status in (await session.execute(summary)).all():
+        result.append(PromptAnalytics(
+            prompt_id=prompt_id,
+            prompt=text,
+            models=models_by_prompt.get(prompt_id, []),
+            run_count=run_count,
+            last_run=last_run,
+            brands_extracted=brands_extracted,
+            last_status=last_status,
+        ))
     return result
 
 @router.get("/brands/{brand_id}/history", response_model=Page)
@@ -101,14 +148,33 @@ async def latest_rankings(prompt_id: int, ai_model_id: int | None = None, brand_
                           session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     prompt = await owned_prompt(prompt_id, session, user)
     if not prompt: raise HTTPException(404, "Prompt یافت نشد")
-    stmt = select(RunBrand, Brand, AIModel, AIRun).join(Brand).join(AIRun).join(AIModel).where(AIRun.prompt_id == prompt_id).order_by(AIRun.created_at.desc())
-    if ai_model_id is not None: stmt = stmt.where(AIRun.ai_model_id == ai_model_id)
-    if brand_id is not None: stmt = stmt.where(RunBrand.brand_id == brand_id)
-    latest = {}
-    for link, brand, model, run in (await session.execute(stmt)).all(): latest.setdefault((brand.id, model.id), (link, brand, model, run))
-    values = list(latest.values())
-    items = [LatestRanking(brand=b.name, domain=b.domain, rank=l.rank, confidence=l.confidence, ai_model=m.name, run_date=r.created_at) for l,b,m,r in values[(page-1)*page_size:page*page_size]]
-    return Page(items=items, page=page, page_size=page_size, total=len(values))
+    ranked = select(
+        Brand.name.label("brand"),
+        Brand.domain,
+        RunBrand.rank,
+        RunBrand.confidence,
+        AIModel.name.label("ai_model"),
+        AIRun.created_at.label("run_date"),
+        func.row_number().over(
+            partition_by=(RunBrand.brand_id, AIRun.ai_model_id),
+            order_by=(AIRun.created_at.desc(), AIRun.id.desc()),
+        ).label("row_number"),
+    ).join(AIRun, AIRun.id == RunBrand.ai_run_id).join(Brand, Brand.id == RunBrand.brand_id).join(AIModel, AIModel.id == AIRun.ai_model_id).where(AIRun.prompt_id == prompt_id)
+    if ai_model_id is not None:
+        ranked = ranked.where(AIRun.ai_model_id == ai_model_id)
+    if brand_id is not None:
+        ranked = ranked.where(RunBrand.brand_id == brand_id)
+    latest = ranked.subquery()
+    total = await session.scalar(select(func.count()).select_from(latest).where(latest.c.row_number == 1)) or 0
+    rows = (await session.execute(
+        select(latest)
+        .where(latest.c.row_number == 1)
+        .order_by(latest.c.run_date.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )).mappings().all()
+    items = [LatestRanking(**{key: row[key] for key in ("brand", "domain", "rank", "confidence", "ai_model", "run_date")}) for row in rows]
+    return Page(items=items, page=page, page_size=page_size, total=total)
 
 @router.get("/brands/{brand_id}", response_model=BrandDetails)
 async def brand_details(brand_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
@@ -121,10 +187,24 @@ async def brand_details(brand_id: int, session: AsyncSession = Depends(get_sessi
 @router.get("/prompts/{prompt_id}/rankings", response_model=list[PromptRankingItem])
 async def prompt_rankings(prompt_id:int, session:AsyncSession=Depends(get_session), user:UserTable=Depends(fastapi_users.current_user())):
     await owned_prompt(prompt_id, session, user)
-    stmt=select(RunBrand,Brand,AIModel,AIRun).join(Brand).join(AIRun).join(AIModel).where(AIRun.prompt_id==prompt_id).order_by(AIRun.created_at.desc())
-    rows=(await session.execute(stmt)).all(); latest={}
-    for link,brand,model,run in rows: latest.setdefault((run.ai_model_id,brand.id),(link,brand,model,run))
-    return [PromptRankingItem(brand=b.name,domain=b.domain,rank=l.rank,ai_model=m.name,date=r.created_at) for l,b,m,r in latest.values()]
+    ranked = select(
+        Brand.name.label("brand"),
+        Brand.domain,
+        RunBrand.rank,
+        AIModel.name.label("ai_model"),
+        AIRun.created_at.label("date"),
+        func.row_number().over(
+            partition_by=(RunBrand.brand_id, AIRun.ai_model_id),
+            order_by=(AIRun.created_at.desc(), AIRun.id.desc()),
+        ).label("row_number"),
+    ).join(AIRun, AIRun.id == RunBrand.ai_run_id).join(Brand, Brand.id == RunBrand.brand_id).join(AIModel, AIModel.id == AIRun.ai_model_id).where(AIRun.prompt_id == prompt_id).subquery()
+    rows = (await session.execute(
+        select(ranked)
+        .where(ranked.c.row_number == 1)
+        .order_by(ranked.c.date.desc())
+        .limit(500)
+    )).mappings().all()
+    return [PromptRankingItem(brand=row["brand"], domain=row["domain"], rank=row["rank"], ai_model=row["ai_model"], date=row["date"]) for row in rows]
 
 @router.get("/prompts/{prompt_id}/brand-trends", response_model=PromptBrandTrends)
 async def prompt_brand_trends(
@@ -156,26 +236,60 @@ async def prompt_brand_trends(
     if end_date is not None:
         stmt = stmt.where(AIRun.created_at <= end_date)
 
-    grouped: dict[tuple[int, int], list[tuple[RunBrand, Brand, AIModel, AIRun]]] = {}
-    rows = (await session.execute(stmt.order_by(AIRun.created_at))).all()
-    for link, brand, model, run in rows:
-        grouped.setdefault((brand.id, model.id), []).append((link, brand, model, run))
+    ranked = (
+        select(
+            RunBrand.brand_id.label("brand_id"),
+            Brand.name.label("brand"),
+            Brand.domain.label("domain"),
+            AIModel.id.label("ai_model_id"),
+            AIModel.name.label("ai_model"),
+            RunBrand.rank.label("rank"),
+            AIRun.id.label("ai_run_id"),
+            AIRun.created_at.label("date"),
+            func.row_number().over(
+                partition_by=(RunBrand.brand_id, AIRun.ai_model_id),
+                order_by=(AIRun.created_at.desc(), AIRun.id.desc()),
+            ).label("point_rank"),
+        )
+        .select_from(RunBrand)
+        .join(Brand)
+        .join(AIRun)
+        .join(AIModel)
+        .where(AIRun.prompt_id == prompt_id)
+    )
+    if ai_model_id is not None:
+        ranked = ranked.where(AIRun.ai_model_id == ai_model_id)
+    if brand_ids:
+        ranked = ranked.where(RunBrand.brand_id.in_(brand_ids))
+    if start_date is not None:
+        ranked = ranked.where(AIRun.created_at >= start_date)
+    if end_date is not None:
+        ranked = ranked.where(AIRun.created_at <= end_date)
+    ranked = ranked.subquery()
+    rows = (await session.execute(
+        select(ranked)
+        .where(ranked.c.point_rank <= settings.TREND_MAX_POINTS_PER_SERIES)
+        .order_by(ranked.c.brand_id, ranked.c.ai_model_id, ranked.c.date.desc())
+    )).mappings().all()
+    grouped: dict[tuple[int, int], list[dict]] = {}
+    for row in rows:
+        grouped.setdefault((row["brand_id"], row["ai_model_id"]), []).append(row)
 
     items = []
     for (brand_id, _), observations in grouped.items():
-        first_link, brand, model, first_run = observations[0]
-        last_link, _, _, _ = observations[-1]
-        rank_change = last_link.rank - first_link.rank if len(observations) > 1 else None
+        first = observations[0]
+        last = observations[-1]
+        rank_change = last["rank"] - first["rank"] if len(observations) > 1 else None
         trend = "flat"
         if rank_change is not None:
             trend = "up" if rank_change < 0 else "down" if rank_change > 0 else "flat"
         items.append(BrandTrend(
             brand_id=brand_id,
-            brand=brand.name,
-            domain=brand.domain,
-            ai_model_id=model.id,
-            ai_model=model.name,
-            points=[BrandTrendPoint(date=run.created_at, rank=link.rank, ai_run_id=run.id) for link, _, _, run in observations],
+            brand=first["brand"],
+            domain=first["domain"],
+            ai_model_id=first["ai_model_id"],
+            ai_model=first["ai_model"],
+            points=[BrandTrendPoint(date=row["date"], rank=row["rank"], ai_run_id=row["ai_run_id"]) for row in observations],
             rank_change=rank_change,
             trend=trend,
         ))

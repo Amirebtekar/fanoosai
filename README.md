@@ -21,7 +21,7 @@ uv sync
 
 ## Setup
 
-1. Copy `backend/.env.example` to `backend/.env` and fill credentials
+1. Copy `templates/env.example` to `backend/.env` and fill credentials.
 2. Create PostgreSQL database:
 ```sql
 CREATE DATABASE fanoosai;
@@ -31,6 +31,39 @@ CREATE DATABASE fanoosai;
 ```bash
 cd backend
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Before the first start, apply the database migrations:
+
+```bash
+cd backend
+uv run alembic upgrade head
+```
+
+## Automatic prompt execution
+
+The API process only schedules jobs. Run the scheduler and one or more workers as separate processes:
+
+```bash
+cd backend
+uv run python -m app.scheduler
+uv run python -m app.worker
+```
+
+Each prompt/model pair is claimed once per Tehran calendar day in PostgreSQL, while Redis Streams provides delivery, retries, and distributed scheduler locking. Run retention periodically (for example, daily cron):
+
+```bash
+uv run python -m app.retention
+```
+
+Production health endpoints are `/health/live`, `/health/ready`, and Prometheus metrics are exposed at `/metrics`. Redis is mandatory outside `DEBUG=true`; it is used for OTP state, rate limits, locks, and the worker queue.
+
+## Load test
+
+The included read-only smoke test runs the requested concurrency scenarios:
+
+```bash
+python scripts/load_test.py --base-url http://127.0.0.1:8000 --duration 30 --users 100 1000 10000
 ```
 
 ## API Endpoints
