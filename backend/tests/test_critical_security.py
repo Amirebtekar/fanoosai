@@ -3,6 +3,8 @@ from pydantic import ValidationError
 
 from app.auth.router import RegisterBody, register_sms
 from app.core.config import Settings
+from app.core.config import settings
+from app.services.auth_service import AuthService, OTPStore
 
 
 def test_settings_require_database_url_and_jwt_secret(monkeypatch):
@@ -31,3 +33,30 @@ async def test_register_sms_never_returns_otp_in_response():
 
     assert "_dev_code" not in response
     assert response == {"message": "OTP sent", "phone": "09123456789"}
+
+
+@pytest.mark.asyncio
+async def test_fixed_otp_is_available_only_for_configured_debug_phone(monkeypatch):
+    class UserRepositoryStub:
+        async def get_by_phone(self, phone):
+            return object()
+
+    monkeypatch.setattr(settings, "DEBUG", True)
+    monkeypatch.setattr(settings, "DEV_OTP_PHONE", "09101418818")
+    monkeypatch.setattr(settings, "DEV_OTP_CODE", "123456")
+
+    service = AuthService.__new__(AuthService)
+    service.user_repo = UserRepositoryStub()
+    service.otp_store = OTPStore()
+
+    await service.request_sms("09101418818")
+
+    assert service.otp_store.check("09101418818", "123456")
+
+
+def test_fixed_otp_is_disabled_when_debug_is_false(monkeypatch):
+    monkeypatch.setattr(settings, "DEBUG", False)
+    monkeypatch.setattr(settings, "DEV_OTP_PHONE", "09101418818")
+    monkeypatch.setattr(settings, "DEV_OTP_CODE", "123456")
+
+    assert not AuthService._is_dev_otp("09101418818")

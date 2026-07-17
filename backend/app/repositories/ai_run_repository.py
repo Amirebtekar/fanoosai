@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 
-from app.database.models import AIRun
+from app.database.models import AIRun, DailyPromptRun
 
 
 class AIRunRepository:
@@ -41,6 +42,31 @@ class AIRunRepository:
         run.error_message = error
         run.processed_at = datetime.now(timezone.utc)
         await self.session.commit()
+
+    async def claim_daily_run(self, prompt_id: int, ai_model_id: int, run_date: date) -> bool:
+        """Atomically claim one prompt/model execution for a calendar day."""
+        existing = await self.session.scalar(
+            select(DailyPromptRun.id).where(
+                DailyPromptRun.prompt_id == prompt_id,
+                DailyPromptRun.ai_model_id == ai_model_id,
+                DailyPromptRun.run_date == run_date,
+            )
+        )
+        if existing is not None:
+            return False
+
+        self.session.add(DailyPromptRun(
+            prompt_id=prompt_id,
+            ai_model_id=ai_model_id,
+            run_date=run_date,
+            claimed_at=datetime.now(timezone.utc),
+        ))
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            return False
+        return True
 
     async def get_by_prompt(self, prompt_id: int) -> list[AIRun]:
         stmt = (

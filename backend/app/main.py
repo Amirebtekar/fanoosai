@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -10,18 +11,24 @@ from app.database.models import UserTable, get_user_db
 from app.users.schema import UserRead, UserCreate, UserUpdate
 from app.users.manager import get_user_manager
 from app.auth.jwt import get_jwt_strategy
-from app.auth.router import router as otp_router
+from app.auth.router import router as otp_router, me_router
 from app.auth.fastapi_users import fastapi_users, jwt_backend
 from app.projects.router import router as projects_router
 from app.projects.prompt_router import router as prompts_router
 from app.projects.ai_models_router import router as ai_models_router
 from app.analytics.router import router as analytics_router
 from app.analytics.extra_router import router as analytics_extra_router
+from app.services.automatic_run_service import automatic_run_loop
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_db_and_tables()
-    yield
+    automatic_task = asyncio.create_task(automatic_run_loop())
+    try:
+        yield
+    finally:
+        automatic_task.cancel()
+        await asyncio.gather(automatic_task, return_exceptions=True)
 
 app = FastAPI(title="FanoosAI", lifespan=lifespan)
 
@@ -59,6 +66,7 @@ app.include_router(fastapi_users.get_register_router(UserRead, UserCreate), pref
 app.include_router(fastapi_users.get_verify_router(UserRead), prefix="/auth", tags=["auth"])
 app.include_router(fastapi_users.get_users_router(UserRead, UserUpdate), prefix="/users", tags=["users"])
 app.include_router(otp_router)
+app.include_router(me_router)
 app.include_router(projects_router)
 app.include_router(prompts_router)
 app.include_router(ai_models_router)

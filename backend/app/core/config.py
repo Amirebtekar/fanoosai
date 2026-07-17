@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     AI_GATEWAY_BASE_URL: str = "https://my.parspack.com/api/aistudio/api"
     AI_GATEWAY_API_KEY: str = ""
     BRAND_EXTRACTION_MODEL: str = "openai/gpt-4.1-mini"
+    RUN_TIMEZONE: str = "Asia/Tehran"
+    AUTOMATIC_RUN_INTERVAL_SECONDS: int = 60
 
     MELIPAYAMAK_USERNAME: str = ""
     MELIPAYAMAK_PASSWORD: str = ""
@@ -22,6 +24,11 @@ class Settings(BaseSettings):
     OTP_TTL: int = 120
     OTP_SEND_COOLDOWN: int = 60
     OTP_MAX_ATTEMPTS: int = 5
+
+    # Development-only OTP. It is usable only when DEBUG is enabled and the
+    # requested phone exactly matches DEV_OTP_PHONE.
+    DEV_OTP_PHONE: str = ""
+    DEV_OTP_CODE: str = ""
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod

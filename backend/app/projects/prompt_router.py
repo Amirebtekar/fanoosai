@@ -51,6 +51,7 @@ def prompt_read(prompt: Prompt) -> PromptRead:
         is_active=prompt.is_active,
         created_at=prompt.created_at,
         updated_at=prompt.updated_at,
+        last_run_at=max((run.created_at for run in prompt.runs), default=None),
         models=[AIModelRead.model_validate(link.model) for link in prompt.models],
     )
 
@@ -248,3 +249,24 @@ async def archive_prompt(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+
+@router.post("/{prompt_id}/restore", response_model=PromptRead)
+async def restore_prompt(
+    project_id: int,
+    prompt_id: int,
+    service: PromptService = Depends(get_prompt_service),
+    current_user: UserTable = Depends(get_current_user),
+) -> PromptRead:
+    try:
+        project_repo = ProjectRepository(service.prompt_repo.session)
+        project = await project_repo.get_by_id(project_id, current_user.id)
+        if not project:
+            raise ValueError("پروژه یافت نشد یا دسترسی ندارید")
+
+        prompt = await service.get_prompt(prompt_id)
+        if prompt.project_id != project_id:
+            raise ValueError("Prompt متعلق به این پروژه نیست")
+
+        return prompt_read(await service.restore_prompt(prompt_id))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

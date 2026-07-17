@@ -50,8 +50,21 @@ class AuthService:
         self.user_repo = UserRepository(session)
         self.otp_store = otp_store
 
+    @staticmethod
+    def _is_dev_otp(phone: str) -> bool:
+        return bool(
+            settings.DEBUG
+            and settings.DEV_OTP_PHONE
+            and settings.DEV_OTP_CODE
+            and phone == settings.DEV_OTP_PHONE
+        )
+
+    def _store_dev_otp(self, phone: str) -> None:
+        self.otp_store.store(phone, settings.DEV_OTP_CODE)
+
     async def register_sms(self, phone: str, first_name: str, last_name: str, email: str | None) -> None:
-        otp_store.check_send_rate(phone)
+        if not self._is_dev_otp(phone):
+            otp_store.check_send_rate(phone)
 
         user = await self.user_repo.get_by_phone(phone)
         if not user:
@@ -64,6 +77,10 @@ class AuthService:
                 is_active=True,
             )
 
+        if self._is_dev_otp(phone):
+            self._store_dev_otp(phone)
+            return
+
         code = str(random.randint(100000, 999999))
         otp_store.store(phone, code)
 
@@ -72,11 +89,16 @@ class AuthService:
             raise HTTPException(503, "SMS service is temporarily unavailable")
 
     async def request_sms(self, phone: str) -> None:
-        otp_store.check_send_rate(phone)
+        if not self._is_dev_otp(phone):
+            otp_store.check_send_rate(phone)
 
         user = await self.user_repo.get_by_phone(phone)
         if not user:
             raise HTTPException(400, "کاربری با این شماره یافت نشد. لطفاً ابتدا ثبت‌نام کنید")
+
+        if self._is_dev_otp(phone):
+            self._store_dev_otp(phone)
+            return
 
         code = str(random.randint(100000, 999999))
         otp_store.store(phone, code)

@@ -65,3 +65,12 @@ class PromptService:
             raise ValueError(f"حداقل {self.MIN_ACTIVE_PROMPTS} Prompt فعال باید وجود داشته باشد")
 
         return await self.prompt_repo.archive(prompt)
+
+    async def restore_prompt(self, prompt_id: int) -> Prompt:
+        prompt = await self.get_prompt(prompt_id)
+        active_count = await self.prompt_repo.count_active_by_project(prompt.project_id)
+        if prompt.is_active:
+            return prompt
+        if active_count >= self.MAX_ACTIVE_PROMPTS:
+            raise ValueError(f"حداکثر {self.MAX_ACTIVE_PROMPTS} Prompt فعال مجاز است")
+        return await self.prompt_repo.restore(prompt)

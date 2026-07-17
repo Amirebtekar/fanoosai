@@ -1,3 +1,7 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from app.core.config import settings
 from app.database.models import Prompt
 from app.repositories.ai_run_repository import AIRunRepository
 from app.services.ai_service import AIService
@@ -17,10 +21,13 @@ class AIRunService:
         self.extraction_service = extraction_service
         self.persistence_service = persistence_service
 
-    async def run_prompt_models(self, prompt: Prompt) -> list[dict]:
+    async def run_prompt_models(self, prompt: Prompt, *, now: datetime | None = None) -> list[dict]:
         results = []
+        run_date = (now or datetime.now(ZoneInfo(settings.RUN_TIMEZONE))).date()
         for link in prompt.models:
             model = link.model
+            if not await self.run_repo.claim_daily_run(prompt.id, model.id, run_date):
+                continue
             request_text = prompt.text
             try:
                 response_text = await self.ai_service.run_prompt(model.model_key, request_text)

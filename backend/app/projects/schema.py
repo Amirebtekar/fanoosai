@@ -46,6 +46,7 @@ class PromptRead(PromptBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    last_run_at: datetime | None = None
     models: List[AIModelRead] = Field(default_factory=list)
     
     class Config:

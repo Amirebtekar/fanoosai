@@ -56,6 +56,25 @@ class PromptRankingItem(BaseModel):
     ai_model: str
     date: datetime
 
+class BrandTrendPoint(BaseModel):
+    date: datetime
+    rank: int
+    ai_run_id: int
+
+class BrandTrend(BaseModel):
+    brand_id: int
+    brand: str
+    domain: str | None
+    ai_model_id: int
+    ai_model: str
+    points: list[BrandTrendPoint]
+    rank_change: int | None
+    trend: str
+
+class PromptBrandTrends(BaseModel):
+    prompt_id: int
+    items: list[BrandTrend]
+
 class LatestRun(BaseModel):
     ai_run_id: int
     prompt: str

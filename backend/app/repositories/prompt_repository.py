@@ -21,7 +21,10 @@ class PromptRepository:
     async def get_by_id(self, prompt_id: int) -> Prompt | None:
         stmt = (
             select(Prompt)
-            .options(selectinload(Prompt.models).selectinload(PromptModel.model))
+            .options(
+                selectinload(Prompt.models).selectinload(PromptModel.model),
+                selectinload(Prompt.runs),
+            )
             .where(Prompt.id == prompt_id)
         )
         result = await self.session.execute(stmt)
@@ -68,7 +71,10 @@ class PromptRepository:
     async def list_by_project(self, project_id: int, include_archived: bool = False) -> List[Prompt]:
         stmt = (
             select(Prompt)
-            .options(selectinload(Prompt.models).selectinload(PromptModel.model))
+            .options(
+                selectinload(Prompt.models).selectinload(PromptModel.model),
+                selectinload(Prompt.runs),
+            )
             .where(Prompt.project_id == project_id)
         )
         if not include_archived:
@@ -87,6 +93,12 @@ class PromptRepository:
 
     async def archive(self, prompt: Prompt) -> Prompt:
         prompt.is_active = False
+        await self.session.commit()
+        await self.session.refresh(prompt)
+        return prompt
+
+    async def restore(self, prompt: Prompt) -> Prompt:
+        prompt.is_active = True
         await self.session.commit()
         await self.session.refresh(prompt)
         return prompt

@@ -1,6 +1,6 @@
 from typing import AsyncGenerator
-from datetime import datetime
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, UniqueConstraint, func, Text, Float, Index
+from datetime import date, datetime
+from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Date, UniqueConstraint, func, Text, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from fastapi_users.db import SQLAlchemyBaseUserTable, SQLAlchemyUserDatabase
 from app.database.connection import Base, async_session_maker
@@ -53,6 +53,22 @@ class AIRun(Base):
     prompt: Mapped["Prompt"] = relationship("Prompt", back_populates="runs")
     model: Mapped["AIModel"] = relationship("AIModel", back_populates="runs")
     brand_links: Mapped[list["RunBrand"]] = relationship("RunBrand", back_populates="ai_run")
+
+
+class DailyPromptRun(Base):
+    """A database-backed claim that a prompt/model ran on a calendar day."""
+
+    __tablename__ = "daily_prompt_runs"
+    __table_args__ = (
+        UniqueConstraint("prompt_id", "ai_model_id", "run_date", name="uq_daily_prompt_model_run"),
+        Index("ix_daily_prompt_runs_date", "run_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prompt_id: Mapped[int] = mapped_column(Integer, ForeignKey("prompts.id"), nullable=False)
+    ai_model_id: Mapped[int] = mapped_column(Integer, ForeignKey("ai_models.id"), nullable=False)
+    run_date: Mapped[date] = mapped_column(Date, nullable=False)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class UserTable(Base, SQLAlchemyBaseUserTable):

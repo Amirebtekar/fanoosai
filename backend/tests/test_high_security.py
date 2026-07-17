@@ -26,6 +26,13 @@ def test_frontend_uses_http_only_cookie_auth_contract():
     assert "localStorage.getItem('access_token')" not in app
 
 
+def test_authenticated_profile_endpoint_returns_safe_user_schema():
+    source = (ROOT / "backend/app/auth/router.py").read_text(encoding="utf-8")
+    assert '@me_router.get("/me", response_model=UserRead)' in source
+    assert "Depends(fastapi_users.current_user())" in source
+    assert "hashed_password" not in source
+
+
 def test_default_cors_allows_supported_local_frontend_origins():
     config = (ROOT / "backend/app/core/config.py").read_text(encoding="utf-8")
     assert "http://localhost:3000" in config

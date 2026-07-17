@@ -125,3 +125,58 @@ async def prompt_rankings(prompt_id:int, session:AsyncSession=Depends(get_sessio
     rows=(await session.execute(stmt)).all(); latest={}
     for link,brand,model,run in rows: latest.setdefault((run.ai_model_id,brand.id),(link,brand,model,run))
     return [PromptRankingItem(brand=b.name,domain=b.domain,rank=l.rank,ai_model=m.name,date=r.created_at) for l,b,m,r in latest.values()]
+
+@router.get("/prompts/{prompt_id}/brand-trends", response_model=PromptBrandTrends)
+async def prompt_brand_trends(
+    prompt_id: int,
+    ai_model_id: int | None = None,
+    brand_ids: list[int] | None = Query(default=None, max_length=20),
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    prompt = await owned_prompt(prompt_id, session, user)
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(422, "start_date must be before end_date")
+
+    stmt = (
+        select(RunBrand, Brand, AIModel, AIRun)
+        .join(Brand)
+        .join(AIRun)
+        .join(AIModel)
+        .where(AIRun.prompt_id == prompt_id)
+    )
+    if ai_model_id is not None:
+        stmt = stmt.where(AIRun.ai_model_id == ai_model_id)
+    if brand_ids:
+        stmt = stmt.where(RunBrand.brand_id.in_(brand_ids))
+    if start_date is not None:
+        stmt = stmt.where(AIRun.created_at >= start_date)
+    if end_date is not None:
+        stmt = stmt.where(AIRun.created_at <= end_date)
+
+    grouped: dict[tuple[int, int], list[tuple[RunBrand, Brand, AIModel, AIRun]]] = {}
+    rows = (await session.execute(stmt.order_by(AIRun.created_at))).all()
+    for link, brand, model, run in rows:
+        grouped.setdefault((brand.id, model.id), []).append((link, brand, model, run))
+
+    items = []
+    for (brand_id, _), observations in grouped.items():
+        first_link, brand, model, first_run = observations[0]
+        last_link, _, _, _ = observations[-1]
+        rank_change = last_link.rank - first_link.rank if len(observations) > 1 else None
+        trend = "flat"
+        if rank_change is not None:
+            trend = "up" if rank_change < 0 else "down" if rank_change > 0 else "flat"
+        items.append(BrandTrend(
+            brand_id=brand_id,
+            brand=brand.name,
+            domain=brand.domain,
+            ai_model_id=model.id,
+            ai_model=model.name,
+            points=[BrandTrendPoint(date=run.created_at, rank=link.rank, ai_run_id=run.id) for link, _, _, run in observations],
+            rank_change=rank_change,
+            trend=trend,
+        ))
+    return PromptBrandTrends(prompt_id=prompt.id, items=items)

@@ -7,8 +7,11 @@ from app.dependencies import get_session
 from app.users.schema import UserRead
 from app.services.auth_service import AuthService
 from app.auth.jwt import get_jwt_strategy
+from app.auth.fastapi_users import fastapi_users
+from app.database.models import UserTable
 
 router = APIRouter(prefix="/auth/otp", tags=["otp"])
+me_router = APIRouter(prefix="/auth", tags=["auth"])
 IR_PHONE_RE = re.compile(r"^09\d{9}$")
 
 
@@ -57,6 +60,12 @@ class VerifyResponse(BaseModel):
 
 def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthService:
     return AuthService(session)
+
+
+@me_router.get("/me", response_model=UserRead)
+async def get_current_user(user: UserTable = Depends(fastapi_users.current_user())) -> UserTable:
+    """Return the authenticated user's safe profile for the dashboard."""
+    return user
 
 
 @router.post("/sms/register")
