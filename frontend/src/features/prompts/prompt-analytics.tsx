@@ -9,9 +9,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { toast } from 'sonner'
-import { Loader2, RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { Loader2, RotateCcw, SlidersHorizontal, FileText } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { getPromptBrandTrends, getPromptRankings, listPrompts, getErrorMessage, type PromptBrandTrends, type PromptRankingItem, type PromptRead } from '@/lib/api'
+import { getPromptBrandTrends, getPromptRankings, getPromptHistory, listPrompts, getErrorMessage, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
 import { BrandTrendChart } from './brand-trend-chart'
 
 const RANK_BG = ['#ef4444', '#dc2626', '#b91c1c', '#f5f0e8', '#e0ddd5']
@@ -30,6 +30,10 @@ export function PromptAnalyticsPage() {
   const [trendLoading, setTrendLoading] = useState(false)
   const [dateError, setDateError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [history, setHistory] = useState<PromptHistoryItem[]>([])
+  const [historyModel, setHistoryModel] = useState('all')
+  const [historyDate, setHistoryDate] = useState<Date>()
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -74,6 +78,20 @@ export function PromptAnalyticsPage() {
     setTrends(allTrends)
   }
 
+  const loadPromptHistory = async () => {
+    setHistoryLoading(true)
+    try {
+      const date = historyDate ? format(historyDate, 'yyyy-MM-dd') : undefined
+      const result = await getPromptHistory(Number(promptId), {
+        ai_model_id: historyModel === 'all' ? undefined : Number(historyModel),
+        start_date: date ? `${date}T00:00:00` : undefined,
+        end_date: date ? `${date}T23:59:59` : undefined,
+      })
+      setHistory(result.items)
+    } catch (e) { toast.error(getErrorMessage(e, 'خطا در دریافت متن خام پرامپت')) }
+    finally { setHistoryLoading(false) }
+  }
+
   const modelOptions = [...new Map((allTrends?.items ?? []).map(item => [item.ai_model_id, item.ai_model])).entries()]
   const brandOptions = [...new Map((allTrends?.items ?? []).map(item => [item.brand_id, item.brand])).entries()]
   const activeFilterCount = [selectedModel !== 'all', selectedBrand !== 'all', Boolean(startDate), Boolean(endDate)].filter(Boolean).length
@@ -106,6 +124,57 @@ export function PromptAnalyticsPage() {
             </CardContent>
           </Card>
         )}
+
+        <Card className="mb-6 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+          <CardHeader className="gap-2 border-b border-border/70">
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <FileText className="size-5" aria-hidden="true" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-bold">پاسخ خام مدل</CardTitle>
+                <CardDescription className="mt-1 text-sm font-medium text-muted-text">مدل و تاریخ اجرا را انتخاب کنید تا پاسخ خام دریافت‌شده از مدل را ببینید.</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-5">
+            <div className="grid gap-4 rounded-lg border border-border/70 bg-muted/20 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+              <div className="grid gap-2">
+                <label className="text-sm font-semibold" htmlFor="raw-prompt-model">مدل AI</label>
+                <Select value={historyModel} onValueChange={setHistoryModel}>
+                  <SelectTrigger id="raw-prompt-model" className="h-11 border-border/80 bg-background font-medium"><SelectValue placeholder="همه مدل‌ها" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">همه مدل‌ها</SelectItem>
+                    {prompt?.models.map(model => <SelectItem key={model.id} value={String(model.id)}>{model.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <span className="text-sm font-semibold">تاریخ اجرا</span>
+                <DatePicker selected={historyDate} onSelect={setHistoryDate} placeholder="همه تاریخ‌ها" />
+              </div>
+              <Button type="button" onClick={loadPromptHistory} disabled={historyLoading} className="h-11 font-semibold">
+                {historyLoading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+                نمایش پاسخ خام
+              </Button>
+            </div>
+            {history.length > 0 ? (
+              <div className="space-y-4">
+                {history.map(run => (
+                  <div key={run.ai_run_id} className="border-2 border-border bg-background">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-border bg-muted/30 px-4 py-3 text-xs font-bold">
+                      <span>{run.ai_model}</span>
+                      <span>{new Date(run.run_date).toLocaleString('fa-IR')}</span>
+                    </div>
+                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-4 text-sm leading-7" dir="auto">{run.response_text || 'برای این اجرا پاسخ خامی ثبت نشده است.'}</pre>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p role="status" className="py-5 text-center text-sm font-medium text-muted-text">برای فیلتر انتخاب‌شده اجرایی پیدا نشد.</p>
+            )}
+          </CardContent>
+        </Card>
 
         {allTrends && allTrends.items.length > 0 && (
           <div className="mb-6 space-y-4">

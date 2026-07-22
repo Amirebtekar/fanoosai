@@ -97,5 +97,27 @@ export function getPromptBrandTrends(promptId: number, params?: { ai_model_id?: 
   return authRequest('GET', '/prompts/' + promptId + '/brand-trends' + suffix)
 }
 
+export interface PromptHistoryItem {
+  ai_run_id: number
+  ai_model: string
+  run_date: string
+  request_text: string
+  response_text: string | null
+  status: string
+  extraction_status: string
+  brands_count: number
+}
+
+export interface PromptHistoryPage { items: PromptHistoryItem[]; page: number; page_size: number; total: number }
+
+export function getPromptHistory(promptId: number, params?: { ai_model_id?: number; start_date?: string; end_date?: string }): Promise<PromptHistoryPage> {
+  const query = new URLSearchParams()
+  if (params?.ai_model_id !== undefined) query.set('ai_model_id', String(params.ai_model_id))
+  if (params?.start_date) query.set('start_date', params.start_date)
+  if (params?.end_date) query.set('end_date', params.end_date)
+  const suffix = query.toString() ? '?' + query.toString() : ''
+  return authRequest('GET', '/prompts/' + promptId + '/history' + suffix)
+}
+
 export function listAIModels(): Promise<AIModelRead[]> { return authRequest('GET', '/ai-models') }
 export function logout(): Promise<void> { return authRequest('POST', '/auth/jwt/logout') }
