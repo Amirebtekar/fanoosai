@@ -236,3 +236,80 @@ Replace the in-process daily runner with a Redis-backed queue and separate worke
 - Production PostgreSQL version and whether native partitioning is available.
 - Production Redis deployment (single instance, Sentinel, or managed Redis).
 - Target SLOs for API p95 latency and daily-run completion time.
+
+---
+
+# Implementation Plan: Product Completion Roadmap
+
+## Overview
+
+Deliver the ten missing FanoosAI capabilities in dependency order. The first phase strengthens execution correctness and project foundations; later phases add the analytical and collaboration layers. Each phase remains deployable on its own.
+
+## Architecture decisions
+
+- Extend the existing `daily_prompt_runs` unique claim rather than adding a second manual-quota system. A new claim state/source field records whether it was manual or scheduled and lets the UI explain the result.
+- Treat brand ownership as project-scoped configuration; retain the global extracted-brand catalog to avoid duplicate entities.
+- Use in-app alerts first. Email, Telegram, Slack, and webhooks are adapters added only after their delivery and retry contract is defined.
+- Version prompts by creating immutable revisions; runs retain the revision text used at execution time.
+- Introduce organizations/memberships before sharing projects. The existing user-owned project remains a single-owner organization during migration.
+
+## Dependency map
+
+```text
+Execution claim/status ──> Manual-run UI + project run history ──> alerts
+Project brand configuration ──> comparison analytics ──> reports/share links
+Project settings + dashboard ──> project overview
+Prompt revisions ──> version-aware analytics
+Organization/membership ──> roles ──> secure sharing
+Admin model management ──> model selection and execution health
+```
+
+## Phases
+
+### Phase 0 — foundation and execution control
+
+1. Establish frontend test tooling, runtime API configuration, and API error conventions.
+2. Complete the daily execution-claim contract and expose execution availability/status.
+3. Deliver manual-run controls and a project-level execution log.
+
+Checkpoint: concurrent manual/scheduled attempts cannot exceed one execution per prompt/model/day.
+
+### Phase 1 — project and brand intelligence
+
+4. Finish project read/update settings, including website URL and safe deletion confirmation.
+5. Add project-scoped owned-brand and competitor configuration.
+6. Deliver a data-backed project dashboard with core visibility KPIs.
+
+Checkpoint: a user can identify its brand, competitors, current visibility, and recent changes from one project page.
+
+### Phase 2 — alerts and actionable analytics
+
+7. Add alert rules, in-app alert inbox, and read state.
+8. Complete analytics tables: ranking filters, brand drill-down, comparison, and pagination.
+9. Add CSV export, scheduled report-ready snapshots, and private read-only sharing links.
+
+Checkpoint: users can find a material rank/visibility change, inspect it, and export/share the result.
+
+### Phase 3 — authoring, administration, collaboration
+
+10. Add immutable prompt revisions and clone/compare flows.
+11. Add AI-model administration and execution-health visibility.
+12. Add organizations, memberships, roles, and project authorization migration.
+
+Checkpoint: team users can safely collaborate and administrators can operate models without direct database access.
+
+## Risks and mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Daily-claim migration changes scheduler behavior | High | Add source/status fields in an expand/contract migration; test manual-first and scheduler-first cases. |
+| Brand normalization merges separate brands | High | Keep raw extracted name, allow user overrides, and never silently merge user-configured competitors. |
+| Alerts become noisy | Medium | Start with explicit rules and cooldowns; show a preview before enabling a rule. |
+| Public sharing leaks raw model content | High | Scope links to aggregate analytics by default; use expiry, revocation, and no raw response field. |
+| Organization migration breaks ownership | High | Backfill a personal organization per existing user and retain current ownership checks during transition. |
+
+## Open decisions deferred to their phase
+
+- Supported outbound alert channels and their providers.
+- Default report cadence and retention of exported files.
+- Final organization role matrix and whether external guests may be invited.
