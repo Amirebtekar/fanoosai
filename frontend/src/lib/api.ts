@@ -1,4 +1,6 @@
-const API_BASE = 'http://localhost:8000'
+import { getApiBaseUrl } from './api-base'
+
+const API_BASE = getApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
 
 export interface RegisterBody { phone: string; first_name: string; last_name: string; email?: string | null }
 export interface LoginBody { phone: string }
