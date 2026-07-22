@@ -69,6 +69,7 @@ class DailyPromptRun(Base):
     prompt_id: Mapped[int] = mapped_column(Integer, ForeignKey("prompts.id"), nullable=False)
     ai_model_id: Mapped[int] = mapped_column(Integer, ForeignKey("ai_models.id"), nullable=False)
     run_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
     claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

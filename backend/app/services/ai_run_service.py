@@ -21,21 +21,25 @@ class AIRunService:
         self.extraction_service = extraction_service
         self.persistence_service = persistence_service
 
-    async def run_prompt_models(self, prompt: Prompt, *, now: datetime | None = None) -> list[dict]:
+    async def run_prompt_models(
+        self, prompt: Prompt, *, now: datetime | None = None, source: str = "manual"
+    ) -> list[dict]:
         results = []
         for link in prompt.models:
-            results.extend(await self.run_prompt_model(prompt, link.model.id, now=now))
+            results.extend(await self.run_prompt_model(prompt, link.model.id, now=now, source=source))
         return results
 
     async def run_prompt_model(
-        self, prompt: Prompt, ai_model_id: int, *, now: datetime | None = None
+        self, prompt: Prompt, ai_model_id: int, *, now: datetime | None = None, source: str = "manual"
     ) -> list[dict]:
         link = next((item for item in prompt.models if getattr(item, "ai_model_id", item.model.id) == ai_model_id), None)
         if link is None:
             return []
         model = link.model
         run_date = (now or datetime.now(ZoneInfo(settings.RUN_TIMEZONE))).date()
-        if not await self.run_repo.claim_daily_run(prompt.id, model.id, run_date):
+        if source not in {"manual", "scheduled"}:
+            raise ValueError("Invalid run source")
+        if not await self.run_repo.claim_daily_run(prompt.id, model.id, run_date, source):
             return []
         request_text = prompt.text
         try:

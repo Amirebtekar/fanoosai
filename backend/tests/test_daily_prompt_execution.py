@@ -10,8 +10,10 @@ class FakeRunRepository:
     def __init__(self):
         self.claims = set()
         self.created = []
+        self.claim_sources = []
 
-    async def claim_daily_run(self, prompt_id, ai_model_id, run_date):
+    async def claim_daily_run(self, prompt_id, ai_model_id, run_date, source):
+        self.claim_sources.append(source)
         key = (prompt_id, ai_model_id, run_date)
         if key in self.claims:
             return False
@@ -74,3 +76,24 @@ async def test_each_prompt_model_runs_once_per_day_and_again_the_next_day():
     assert len(await service.run_prompt_models(prompt, now=first_day)) == 0
     assert len(await service.run_prompt_models(prompt, now=datetime(2026, 7, 18))) == 2
     assert len(ai_service.calls) == 4
+
+
+@pytest.mark.asyncio
+async def test_manual_and_scheduled_runs_share_the_daily_quota_and_record_the_source():
+    repository = FakeRunRepository()
+    service = AIRunService(
+        repository,
+        FakeAIService(),
+        FakeExtractionService(),
+        FakePersistenceService(),
+    )
+    prompt = SimpleNamespace(
+        id=7,
+        text="test prompt",
+        models=[SimpleNamespace(model=SimpleNamespace(id=1, model_key="model-a"))],
+    )
+
+    today = datetime(2026, 7, 17)
+    assert len(await service.run_prompt_models(prompt, now=today, source="manual")) == 1
+    assert await service.run_prompt_models(prompt, now=today, source="scheduled") == []
+    assert repository.claim_sources == ["manual", "scheduled"]

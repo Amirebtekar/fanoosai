@@ -46,7 +46,9 @@ class AIRunRepository:
         run.processed_at = datetime.now(timezone.utc)
         await self.session.commit()
 
-    async def claim_daily_run(self, prompt_id: int, ai_model_id: int, run_date: date) -> bool:
+    async def claim_daily_run(
+        self, prompt_id: int, ai_model_id: int, run_date: date, source: str
+    ) -> bool:
         """Atomically claim one prompt/model execution for a calendar day."""
         existing = await self.session.scalar(
             select(DailyPromptRun.id).where(
@@ -62,6 +64,7 @@ class AIRunRepository:
             prompt_id=prompt_id,
             ai_model_id=ai_model_id,
             run_date=run_date,
+            source=source,
             claimed_at=datetime.now(timezone.utc),
         ))
         try:
