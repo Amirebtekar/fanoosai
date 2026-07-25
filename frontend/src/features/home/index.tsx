@@ -21,10 +21,10 @@ export function HomePage() {
               <h1 className="text-5xl font-black tracking-tight sm:text-6xl lg:text-7xl">FanoosAI</h1>
               <p className="max-w-sm text-base font-medium text-muted-text">مدیریت پرامپت و آنالیز برند با هوش مصنوعی</p>
               <div className="flex flex-wrap justify-center gap-3">
-                <Button onClick={() => navigate({ to: '/dashboard' })} className="border-border bg-accent-neon text-fg shadow-[5px_5px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold text-base px-6 py-5">
+                <Button onClick={() => navigate({ to: '/dashboard' })} className="border-border bg-accent-neon text-primary-foreground shadow-[5px_5px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold text-base px-6 py-5">
                   ورود به داشبورد
                 </Button>
-                <Button variant="outline" onClick={() => navigate({ to: '/projects' })} className="border-border bg-card text-fg shadow-[5px_5px_0_var(--color-shadow)] hover:shadow-[3px_3px_0_var(--color-shadow)] font-bold text-base px-6 py-5">
+                <Button variant="outline" onClick={() => navigate({ to: '/projects' })} className="border-border bg-card text-foreground shadow-[5px_5px_0_var(--color-shadow)] hover:shadow-[3px_3px_0_var(--color-shadow)] font-bold text-base px-6 py-5">
                   مشاهده پروژه‌ها
                 </Button>
               </div>

@@ -15,7 +15,7 @@ def test_analytics_queries_enforce_resource_ownership():
     assert "await owned_prompt(prompt_id, session, user)" in analytics
     assert "project_id=prompt.project_id" in analytics
     assert "await owned_brand(brand_id, session, user)" in extra
-    assert "Project.user_id == user.id" in extra
+    assert "OrganizationMember.user_id == user.id" in extra
 
 
 def test_frontend_uses_http_only_cookie_auth_contract():

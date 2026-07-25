@@ -24,7 +24,7 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
   return (
     <SearchProvider>
       <LayoutProvider>
-        <SidebarProvider defaultOpen={defaultOpen}>
+        <SidebarProvider className='flex-row-reverse' defaultOpen={defaultOpen}>
           <SkipToMain />
           <AppSidebar />
           <SidebarInset

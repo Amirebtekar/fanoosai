@@ -1,9 +1,11 @@
+from datetime import datetime
+
 from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import List
 
-from app.database.models import AIModel, Prompt, PromptModel
+from app.database.models import AIModel, AIRun, DailyPromptRun, Prompt, PromptModel, RunBrand
 
 class PromptRepository:
     def __init__(self, session: AsyncSession):
@@ -88,6 +90,17 @@ class PromptRepository:
         )
         result = await self.session.execute(stmt)
         return result.scalar_one()
+
+    async def purge_archived_before(self, before: datetime) -> int:
+        prompt_ids = select(Prompt.id).where(Prompt.is_active.is_(False), Prompt.updated_at < before)
+        run_ids = select(AIRun.id).where(AIRun.prompt_id.in_(prompt_ids))
+        await self.session.execute(delete(RunBrand).where(RunBrand.ai_run_id.in_(run_ids)))
+        await self.session.execute(delete(AIRun).where(AIRun.prompt_id.in_(prompt_ids)))
+        await self.session.execute(delete(PromptModel).where(PromptModel.prompt_id.in_(prompt_ids)))
+        await self.session.execute(delete(DailyPromptRun).where(DailyPromptRun.prompt_id.in_(prompt_ids)))
+        result = await self.session.execute(delete(Prompt).where(Prompt.id.in_(prompt_ids)))
+        await self.session.commit()
+        return result.rowcount
 
     async def archive(self, prompt: Prompt) -> Prompt:
         prompt.is_active = False

@@ -1,16 +1,18 @@
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import datetime, timedelta, timezone
+import csv, io, secrets
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_session
 from app.auth.fastapi_users import fastapi_users
-from app.database.models import Project, Prompt, AIModel, AIRun, Brand, RunBrand, UserTable
+from app.database.models import Project, Prompt, AIModel, AIRun, Brand, RunBrand, ReportShare, OrganizationMember, UserTable
+from app.repositories.project_repository import ProjectRepository
 from app.analytics.schema import Page, LatestRun, BrandDetails
 
 router = APIRouter(tags=["analytics"])
 
 async def owner(project_id, session, user):
-    if not await session.scalar(select(Project.id).where(Project.id == project_id, Project.user_id == user.id)):
+    if not await ProjectRepository(session).can_read(project_id, user.id):
         raise HTTPException(404, "پروژه یافت نشد")
 
 async def owned_brand(brand_id: int, session: AsyncSession, user: UserTable) -> None:
@@ -20,7 +22,8 @@ async def owned_brand(brand_id: int, session: AsyncSession, user: UserTable) -> 
         .join(AIRun)
         .join(Prompt)
         .join(Project)
-        .where(Brand.id == brand_id, Project.user_id == user.id)
+        .join(OrganizationMember, OrganizationMember.organization_id == Project.organization_id)
+        .where(Brand.id == brand_id, OrganizationMember.user_id == user.id)
     )
     if not await session.scalar(stmt):
         raise HTTPException(404, "Brand not found")
@@ -34,10 +37,36 @@ async def runs(project_id: int, page: int = Query(1, ge=1), page_size: int = Que
     items = [LatestRun(ai_run_id=r.id, prompt=p.text, ai_model=m.name, status=r.status, extraction_status=r.extraction_status, created_at=r.created_at, completed_at=r.completed_at) for r, p, m in rows]
     return Page(items=items, page=page, page_size=page_size, total=total)
 
+@router.get("/projects/{project_id}/runs.csv")
+async def export_runs(project_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
+    await owner(project_id, session, user)
+    rows = (await session.execute(select(AIRun.id, AIModel.name, AIRun.status, AIRun.created_at).join(Prompt).join(AIModel).where(Prompt.project_id == project_id))).all()
+    out = io.StringIO(); writer = csv.writer(out); writer.writerow(("run_id", "model", "status", "created_at")); writer.writerows(rows)
+    return Response(out.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=runs.csv"})
+
+@router.post("/projects/{project_id}/shares")
+async def create_share(project_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
+    await owner(project_id, session, user)
+    share = ReportShare(project_id=project_id, token=secrets.token_urlsafe(32), expires_at=datetime.now(timezone.utc) + timedelta(days=7)); session.add(share); await session.commit(); return {"token": share.token, "expires_at": share.expires_at}
+
+@router.delete("/projects/{project_id}/shares/{token}", status_code=204)
+async def revoke_share(project_id: int, token: str, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
+    await owner(project_id, session, user)
+    share = await session.scalar(select(ReportShare).where(ReportShare.project_id == project_id, ReportShare.token == token, ReportShare.revoked_at.is_(None)))
+    if not share: raise HTTPException(404, "Share not found")
+    share.revoked_at = datetime.now(timezone.utc); await session.commit()
+
+@router.get("/shared/{token}")
+async def shared_report(token: str, session: AsyncSession = Depends(get_session)):
+    share = await session.scalar(select(ReportShare).where(ReportShare.token == token, ReportShare.revoked_at.is_(None), ReportShare.expires_at > datetime.now(timezone.utc)))
+    if not share: raise HTTPException(404, "Share not found")
+    rows = (await session.execute(select(AIModel.name, AIRun.status, AIRun.created_at).join(Prompt).join(AIModel).where(Prompt.project_id == share.project_id).order_by(AIRun.created_at.desc()).limit(100))).all()
+    return {"runs": [{"model": model, "status": status, "created_at": created_at} for model, status, created_at in rows]}
+
 @router.get("/brands/{brand_id}", response_model=BrandDetails)
 async def details(brand_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     await owned_brand(brand_id, session, user)
-    stmt = select(Brand, func.count(RunBrand.id), func.avg(RunBrand.rank), func.min(RunBrand.rank), func.max(RunBrand.rank), func.min(RunBrand.created_at), func.max(RunBrand.created_at)).join(RunBrand).join(AIRun).join(Prompt).join(Project).where(Brand.id == brand_id, Project.user_id == user.id).group_by(Brand.id)
+    stmt = select(Brand, func.count(RunBrand.id), func.avg(RunBrand.rank), func.min(RunBrand.rank), func.max(RunBrand.rank), func.min(RunBrand.created_at), func.max(RunBrand.created_at)).join(RunBrand).join(AIRun).join(Prompt).join(Project).join(OrganizationMember, OrganizationMember.organization_id == Project.organization_id).where(Brand.id == brand_id, OrganizationMember.user_id == user.id).group_by(Brand.id)
     row = (await session.execute(stmt)).one_or_none()
     if not row: raise HTTPException(404, "برند یافت نشد")
     b, count, avg, best, worst, first, last = row

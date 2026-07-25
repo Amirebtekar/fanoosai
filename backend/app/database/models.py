@@ -98,6 +98,7 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey(UserTable.id), nullable=False)
+    organization_id: Mapped[int] = mapped_column(Integer, ForeignKey("organizations.id"), nullable=False)
     
     # Relationship to user
     user: Mapped[UserTable] = relationship("UserTable", back_populates="projects")
@@ -120,6 +121,58 @@ class Prompt(Base):
     project: Mapped[Project] = relationship("Project", back_populates="prompts")
     models: Mapped[list["PromptModel"]] = relationship("PromptModel", back_populates="prompt")
     runs: Mapped[list["AIRun"]] = relationship("AIRun", back_populates="prompt")
+
+
+class ProjectBrand(Base):
+    __tablename__ = "project_brands"
+    __table_args__ = (UniqueConstraint("project_id", "domain", name="uq_project_brand_domain"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    domain: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    brand_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("brands.id"), nullable=True)
+
+
+class AlertRule(Base):
+    __tablename__ = "alert_rules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    cooldown_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class ReportShare(Base):
+    __tablename__ = "report_shares"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+class Organization(Base):
+    __tablename__ = "organizations"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    owner_id: Mapped[int] = mapped_column(Integer, ForeignKey(UserTable.id), nullable=False)
+
+class OrganizationMember(Base):
+    __tablename__ = "organization_members"
+    __table_args__ = (UniqueConstraint("organization_id", "user_id", name="uq_organization_member"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    organization_id: Mapped[int] = mapped_column(Integer, ForeignKey("organizations.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey(UserTable.id), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="viewer")
 
 
 class Brand(Base):

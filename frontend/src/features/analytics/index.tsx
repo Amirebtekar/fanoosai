@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { BarChart3 } from 'lucide-react'
-import { listProjects, listPrompts, getPromptRankings, type ProjectRead, type PromptRead, type PromptRankingItem } from '@/lib/api'
+import { getPromptBrandTrends, listProjects, listPrompts, getPromptRankings, type ProjectRead, type PromptBrandTrends, type PromptRead, type PromptRankingItem } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
+import { BrandTrendChart } from '@/features/prompts/brand-trend-chart'
 
 const RANK_BG: Record<number, string> = { 1: '#ef4444', 2: '#dc2626', 3: '#b91c1c' }
 
 export function AnalyticsPage() {
+  const navigate = useNavigate()
   const [projects, setProjects] = useState<ProjectRead[]>([])
   const [prompts, setPrompts] = useState<PromptRead[]>([])
   const [selectedProject, setSelectedProject] = useState('')
@@ -17,7 +21,16 @@ export function AnalyticsPage() {
   const [rankings, setRankings] = useState<PromptRankingItem[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingRankings, setLoadingRankings] = useState(false)
+  const [trends, setTrends] = useState<PromptBrandTrends | null>(null)
+  const [trendLoading, setTrendLoading] = useState(false)
   const [error, setError] = useState('')
+
+  const latestPrompt = [...prompts].sort((a, b) => {
+    const left = new Date(a.last_run_at ?? a.updated_at ?? a.created_at).getTime()
+    const right = new Date(b.last_run_at ?? b.updated_at ?? b.created_at).getTime()
+    return right - left
+  })[0]
+  const displayedPromptId = selectedPrompt || (latestPrompt ? String(latestPrompt.id) : '')
 
   useEffect(() => {
     setLoading(true)
@@ -35,13 +48,22 @@ export function AnalyticsPage() {
   }, [selectedProject])
 
   useEffect(() => {
-    if (!selectedPrompt) { setRankings([]); return }
+    if (!displayedPromptId) { setRankings([]); return }
     setLoadingRankings(true)
-    getPromptRankings(Number(selectedPrompt))
+    getPromptRankings(Number(displayedPromptId))
       .then(setRankings)
       .catch(() => setError('دریافت آنالیز ممکن نشد'))
       .finally(() => setLoadingRankings(false))
-  }, [selectedPrompt])
+  }, [displayedPromptId])
+
+  useEffect(() => {
+    if (!displayedPromptId) { setTrends(null); return }
+    setTrendLoading(true)
+    getPromptBrandTrends(Number(displayedPromptId))
+      .then(setTrends)
+      .catch(() => setTrends(null))
+      .finally(() => setTrendLoading(false))
+  }, [displayedPromptId])
 
   const groupedRankings = rankings.reduce<Record<string, PromptRankingItem[]>>((acc, item) => {
     if (!acc[item.ai_model]) acc[item.ai_model] = []
@@ -58,8 +80,8 @@ export function AnalyticsPage() {
         <p className="mb-6 text-sm font-medium text-muted-text">پرامپت مورد نظر را انتخاب کنید تا رتبه برندها را مشاهده کنید.</p>
 
         <div className="mb-6 flex flex-col gap-3 sm:flex-row">
-          <Select value={selectedProject} onValueChange={v => { setSelectedProject(v); setSelectedPrompt(''); setRankings([]) }}>
-            <SelectTrigger className="w-full border-border font-medium sm:w-[280px]">
+          <Select value={selectedProject} onValueChange={v => { setSelectedProject(v); setSelectedPrompt(''); setPrompts([]); setRankings([]); setTrends(null) }}>
+            <SelectTrigger aria-label='انتخاب پروژه' className="w-full border-border font-medium sm:w-[280px]">
               <SelectValue placeholder="انتخاب پروژه..." />
             </SelectTrigger>
             <SelectContent>
@@ -67,23 +89,33 @@ export function AnalyticsPage() {
             </SelectContent>
           </Select>
 
-          <Select value={selectedPrompt} onValueChange={setSelectedPrompt} disabled={!selectedProject}>
-            <SelectTrigger className="w-full border-border font-medium sm:w-[320px]">
+          <Select value={displayedPromptId} onValueChange={setSelectedPrompt} disabled={!selectedProject}>
+            <SelectTrigger aria-label='انتخاب پرامپت' className="w-full border-border font-medium sm:w-[320px]">
               <SelectValue placeholder="انتخاب پرامپت..." />
             </SelectTrigger>
             <SelectContent>
               {prompts.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.text.slice(0, 60)}{p.text.length > 60 ? '...' : ''}</SelectItem>)}
             </SelectContent>
           </Select>
+
+          <Button
+            type='button'
+            disabled={!displayedPromptId}
+            onClick={() => navigate({ to: '/projects/' + selectedProject + '/prompts/' + displayedPromptId })}
+          >
+            مشاهده تحلیل کامل
+          </Button>
         </div>
 
-        {error && <div className="mb-4 border-3 border-red-500 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
+        {!selectedPrompt && latestPrompt && <p className="mb-4 text-sm font-medium text-muted-text">آخرین پرامپت پروژه انتخاب شده است.</p>}
+
+        {error && <div role='alert' className="mb-4 border-3 border-red-500 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
 
         {loading && <div className="space-y-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32 w-full bg-accent" />)}</div>}
 
         {loadingRankings && <div className="space-y-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-32 w-full bg-accent" />)}</div>}
 
-        {!loadingRankings && !selectedPrompt && !loading && (
+        {!loadingRankings && !displayedPromptId && !loading && (
           <div className="flex flex-col items-center gap-4 rounded-none border-3 border-border bg-card p-10 text-center shadow-[6px_6px_0_var(--color-shadow)]">
             <BarChart3 className="size-10 text-muted-text" />
             <h2 className="text-xl font-black">یک پروژه و پرامپت انتخاب کنید</h2>
@@ -91,11 +123,25 @@ export function AnalyticsPage() {
           </div>
         )}
 
-        {!loadingRankings && selectedPrompt && Object.keys(groupedRankings).length === 0 && (
+        {!loadingRankings && displayedPromptId && Object.keys(groupedRankings).length === 0 && (
           <div className="flex flex-col items-center gap-4 rounded-none border-3 border-border bg-card p-10 text-center shadow-[6px_6px_0_var(--color-shadow)]">
             <h2 className="text-xl font-black">داده‌ای وجود ندارد</h2>
             <p className="text-sm font-medium text-muted-text">برای این پرامپت هنوز رتبه‌ای ثبت نشده است.</p>
           </div>
+        )}
+
+        {displayedPromptId && (
+          <section className="mb-6" aria-label="نمودار رشد و افت رتبه‌ها">
+            {trendLoading && <Skeleton className="h-72 w-full bg-accent" />}
+            {!trendLoading && trends?.items.length ? <BrandTrendChart items={trends.items} /> : null}
+            {!trendLoading && (!trends || trends.items.length === 0) && (
+              <Card className="border-border">
+                <CardContent className="py-8 text-center text-sm text-muted-text">
+                  هنوز دادهٔ کافی برای نمودار رشد و افت وجود ندارد.
+                </CardContent>
+              </Card>
+            )}
+          </section>
         )}
 
         {!loadingRankings && Object.keys(groupedRankings).length > 0 && (

@@ -4,6 +4,7 @@ from typing import List, Optional
 from app.database.models import Project, UserTable
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
+from app.projects.schema import normalize_website_url
 
 logger = logging.getLogger(__name__)
 
@@ -13,19 +14,23 @@ class ProjectService:
         self.user_repo = user_repo
 
     async def create_project(
-        self, user_id: int, name: str, description: Optional[str] = None, website_url: Optional[str] = None
+        self, user_id: int, name: str, description: Optional[str] = None, website_url: Optional[str] = None, brand_name: str = "", organization_id: Optional[int] = None
     ) -> Project:
         # Guard: Check if user is verified
         user = await self.user_repo.get_by_id(user_id)
         if not user or not user.is_verified:
             raise PermissionError("User is not verified. Verification required to create projects.")
-        
+
+        website_url = normalize_website_url(website_url or "")
+        if await self.project_repo.get_by_website_url(website_url):
+            raise ValueError("A project with this website domain already exists")
+
         # Create project
-        project = await self.project_repo.create(user_id=user_id, name=name, description=description, website_url=website_url)
+        project = await self.project_repo.create(user_id=user_id, name=name, description=description, website_url=website_url, brand_name=brand_name, organization_id=organization_id)
         logger.info(f"Project created: {project.id} by user {user_id}")
         return project
 
-    async def list_user_projects(self, user_id: int) -> List[Project]:
+    async def list_user_projects(self, user_id: int) -> list[tuple[Project, int, int]]:
         return await self.project_repo.list_by_user(user_id=user_id)
 
     async def get_project(self, project_id: int, user_id: int) -> Project:

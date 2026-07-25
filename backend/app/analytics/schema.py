@@ -9,6 +9,10 @@ class DashboardSummary(BaseModel):
     last_successful_run: datetime | None
     successful_run_count: int
     failed_run_count: int
+    visibility: float = 0
+    average_rank: float | None = None
+    appearances: int = 0
+    competitors: list[dict] = []
 
 class PromptAnalytics(BaseModel):
     prompt_id: int
@@ -30,6 +34,8 @@ class PromptHistoryItem(BaseModel):
     ai_run_id: int
     ai_model: str
     run_date: datetime
+    request_text: str
+    response_text: str | None = None
     status: str
     extraction_status: str
     brands_count: int

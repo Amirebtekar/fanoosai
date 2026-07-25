@@ -22,20 +22,20 @@ export function AppSidebar() {
     avatar: '/avatars/shadcn.jpg',
   }
   return (
-    <Sidebar collapsible={collapsible} variant={variant}>
-      <SidebarHeader>
+    <Sidebar side='right' collapsible={collapsible} variant={variant}>
+      <SidebarHeader dir='rtl'>
         <TeamSwitcher teams={sidebarData.teams} />
 
         {/* Replace <TeamSwitch /> with the following <AppTitle />
          /* if you want to use the normal app title instead of TeamSwitch dropdown */}
         {/* <AppTitle /> */}
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent dir='rtl'>
         {sidebarData.navGroups.map((props) => (
           <NavGroup key={props.title} {...props} />
         ))}
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter dir='rtl'>
         <NavUser user={user} />
       </SidebarFooter>
       <SidebarRail />

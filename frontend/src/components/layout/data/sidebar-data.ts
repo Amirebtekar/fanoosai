@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   Home,
   Command,
+  Settings,
 } from 'lucide-react'
 import {
   IconFolder,
@@ -40,6 +41,11 @@ export const sidebarData: SidebarData = {
           title: 'پروژه‌ها',
           url: '/projects',
           icon: IconFolder,
+        },
+        {
+          title: 'مدیریت پروژه‌ها',
+          url: '/project-management',
+          icon: Settings,
         },
         {
           title: 'آنالیتیکس',

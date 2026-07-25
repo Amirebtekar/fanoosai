@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from app.core.config import settings
@@ -21,6 +21,13 @@ class AIRunService:
         self.extraction_service = extraction_service
         self.persistence_service = persistence_service
 
+    @staticmethod
+    def _run_date(now: datetime | None) -> date:
+        timezone = ZoneInfo(settings.RUN_TIMEZONE)
+        if now is None:
+            return datetime.now(timezone).date()
+        return (now.astimezone(timezone) if now.tzinfo else now).date()
+
     async def run_prompt_models(
         self, prompt: Prompt, *, now: datetime | None = None, source: str = "manual"
     ) -> list[dict]:
@@ -29,6 +36,22 @@ class AIRunService:
             results.extend(await self.run_prompt_model(prompt, link.model.id, now=now, source=source))
         return results
 
+    async def execution_availability(
+        self, prompt: Prompt, *, now: datetime | None = None
+    ) -> list[dict]:
+        run_date = self._run_date(now)
+        model_ids = [link.model.id for link in prompt.models]
+        claims = await self.run_repo.get_daily_claim_sources(prompt.id, model_ids, run_date)
+        return [
+            {
+                "model_id": link.model.id,
+                "model_name": link.model.name,
+                "can_run": link.model.id not in claims,
+                "claim_source": claims.get(link.model.id),
+            }
+            for link in prompt.models
+        ]
+
     async def run_prompt_model(
         self, prompt: Prompt, ai_model_id: int, *, now: datetime | None = None, source: str = "manual"
     ) -> list[dict]:
@@ -36,7 +59,7 @@ class AIRunService:
         if link is None:
             return []
         model = link.model
-        run_date = (now or datetime.now(ZoneInfo(settings.RUN_TIMEZONE))).date()
+        run_date = self._run_date(now)
         if source not in {"manual", "scheduled"}:
             raise ValueError("Invalid run source")
         if not await self.run_repo.claim_daily_run(prompt.id, model.id, run_date, source):
@@ -49,6 +72,7 @@ class AIRunService:
                 prompt_id=prompt.id, ai_model_id=model.id, request_text=request_text,
                 status="failed", error_message=str(exc),
             )
+            await self.run_repo.alert_run_failure(prompt.id, f"{getattr(model, 'name', model.model_key)} execution failed: {exc}")
             return [self._result(run, model, error=str(exc))]
 
         run = await self.run_repo.create(
@@ -58,6 +82,8 @@ class AIRunService:
         try:
             extraction = await self.extraction_service.extract(response_text)
             saved = await self.persistence_service.persist(run.id, extraction)
+            await self.run_repo.alert_new_competitor(prompt.id, [brand.name for brand in extraction.brands])
+            await self.run_repo.alert_rank_changes(run.id)
             await self.run_repo.update_extraction(run, "completed")
             return [self._result(
                 run, model, brands_found=len(extraction.brands),

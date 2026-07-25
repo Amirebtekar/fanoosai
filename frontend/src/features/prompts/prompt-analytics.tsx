@@ -11,7 +11,7 @@ import { Main } from '@/components/layout/main'
 import { toast } from 'sonner'
 import { Loader2, RotateCcw, SlidersHorizontal, FileText } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { getPromptBrandTrends, getPromptRankings, getPromptHistory, listPrompts, getErrorMessage, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
+import { getPromptBrandTrends, getLatestRankings, getPromptHistory, listPrompts, getErrorMessage, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
 import { BrandTrendChart } from './brand-trend-chart'
 
 const RANK_BG = ['#ef4444', '#dc2626', '#b91c1c', '#f5f0e8', '#e0ddd5']
@@ -34,13 +34,15 @@ export function PromptAnalyticsPage() {
   const [historyModel, setHistoryModel] = useState('all')
   const [historyDate, setHistoryDate] = useState<Date>()
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [rankingPage, setRankingPage] = useState(1)
+  const [rankingTotal, setRankingTotal] = useState(0)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const [promptsData, rankingsData, trendData] = await Promise.all([listPrompts(Number(projectId)), getPromptRankings(Number(promptId)), getPromptBrandTrends(Number(promptId))])
+      const [promptsData, rankingsData, trendData] = await Promise.all([listPrompts(Number(projectId)), getLatestRankings(Number(promptId)), getPromptBrandTrends(Number(promptId))])
       setPrompt(promptsData.find(p => p.id === Number(promptId)) || null)
-      setRankings(rankingsData)
+      setRankings(rankingsData.items); setRankingTotal(rankingsData.total)
       setTrends(trendData)
       setAllTrends(trendData)
     }
@@ -65,6 +67,14 @@ export function PromptAnalyticsPage() {
         end_date: endDate ? `${format(endDate, 'yyyy-MM-dd')}T23:59:59` : undefined,
       })
       setTrends(filtered)
+      const ranked = await getLatestRankings(Number(promptId), { page: 1, ai_model_id: selectedModel === 'all' ? undefined : Number(selectedModel), brand_id: selectedBrand === 'all' ? undefined : Number(selectedBrand) })
+      setRankings(ranked.items); setRankingTotal(ranked.total); setRankingPage(1)
+      const query = new URLSearchParams()
+      if (selectedModel !== 'all') query.set('model', selectedModel)
+      if (selectedBrand !== 'all') query.set('brand', selectedBrand)
+      if (startDate) query.set('start', format(startDate, 'yyyy-MM-dd'))
+      if (endDate) query.set('end', format(endDate, 'yyyy-MM-dd'))
+      window.history.replaceState(null, '', `${window.location.pathname}?${query}`)
     } catch (e) { toast.error(getErrorMessage(e, 'خطا در فیلتر نمودار')) }
     finally { setTrendLoading(false) }
   }
@@ -76,6 +86,7 @@ export function PromptAnalyticsPage() {
     setEndDate(undefined)
     setDateError('')
     setTrends(allTrends)
+    window.history.replaceState(null, '', window.location.pathname)
   }
 
   const loadPromptHistory = async () => {
@@ -293,6 +304,7 @@ export function PromptAnalyticsPage() {
         {rankings.length > 0 && Object.keys(groupedByModel).length === 0 && (
           <p className="text-sm font-medium text-muted-text">داده‌ای برای نمایش وجود ندارد.</p>
         )}
+        {rankingTotal > 20 && <div className="mb-5 flex gap-2"><Button variant="outline" disabled={rankingPage === 1} onClick={async () => { const page = rankingPage - 1; const result = await getLatestRankings(Number(promptId), { page }); setRankings(result.items); setRankingPage(page) }}>قبلی</Button><Button variant="outline" disabled={rankingPage * 20 >= rankingTotal} onClick={async () => { const page = rankingPage + 1; const result = await getLatestRankings(Number(promptId), { page }); setRankings(result.items); setRankingPage(page) }}>بعدی</Button></div>}
       </Main>
     </div>
   )

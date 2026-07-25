@@ -2,6 +2,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.dependencies import get_session
 from app.database.models import Prompt, UserTable
@@ -15,7 +16,7 @@ from app.services.brand_extraction_service import BrandExtractionService
 from app.services.brand_persistence_service import BrandPersistenceService
 from app.projects.schema import PromptCreate, PromptRead
 from app.projects.ai_models_schema import AIModelRead
-from app.projects.ai_runs_schema import AIRunResult
+from app.projects.ai_runs_schema import AIRunResult, PromptModelExecutionAvailability
 from app.auth.fastapi_users import fastapi_users
 
 router = APIRouter(prefix="/projects/{project_id}/prompts", tags=["prompts"])
@@ -36,6 +37,10 @@ def get_ai_run_service(session: AsyncSession = Depends(get_session)) -> AIRunSer
         BrandExtractionService(ai_service),
         BrandPersistenceService(session),
     )
+
+async def require_project_writer(project_id: int, user_id: int, session: AsyncSession) -> None:
+    if not await ProjectRepository(session).can_write(project_id, user_id):
+        raise HTTPException(status_code=403, detail="Write role required")
 
 async def get_current_user(
     user: UserTable = Depends(fastapi_users.current_user())
@@ -63,6 +68,7 @@ async def create_prompt(
     current_user: UserTable = Depends(get_current_user),
 ) -> PromptRead:
     try:
+        await require_project_writer(project_id, current_user.id, service.prompt_repo.session)
                 # Verify project ownership — get_by_id filters by user_id
         project_repo = ProjectRepository(service.prompt_repo.session)
         project = await project_repo.get_by_id(project_id, current_user.id)
@@ -157,6 +163,7 @@ async def add_prompt_model(
     current_user: UserTable = Depends(get_current_user),
 ) -> None:
     try:
+        await require_project_writer(project_id, current_user.id, service.prompt_repo.session)
         project_repo = ProjectRepository(service.prompt_repo.session)
         project = await project_repo.get_by_id(project_id, current_user.id)
         if not project:
@@ -182,6 +189,7 @@ async def remove_prompt_model(
     current_user: UserTable = Depends(get_current_user),
 ) -> None:
     try:
+        await require_project_writer(project_id, current_user.id, service.prompt_repo.session)
         project_repo = ProjectRepository(service.prompt_repo.session)
         project = await project_repo.get_by_id(project_id, current_user.id)
         if not project:
@@ -207,6 +215,7 @@ async def run_prompt(
     current_user: UserTable = Depends(get_current_user),
 ) -> list[AIRunResult]:
     try:
+        await require_project_writer(project_id, current_user.id, prompt_service.prompt_repo.session)
         project_repo = ProjectRepository(prompt_service.prompt_repo.session)
         project = await project_repo.get_by_id(project_id, current_user.id)
         if not project:
@@ -225,6 +234,26 @@ async def run_prompt(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@router.get("/{prompt_id}/execution-availability", response_model=List[PromptModelExecutionAvailability])
+async def execution_availability(
+    project_id: int,
+    prompt_id: int,
+    prompt_service: PromptService = Depends(get_prompt_service),
+    run_service: AIRunService = Depends(get_ai_run_service),
+    current_user: UserTable = Depends(get_current_user),
+) -> list[dict]:
+    project_repo = ProjectRepository(prompt_service.prompt_repo.session)
+    project = await project_repo.get_by_id(project_id, current_user.id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    try:
+        prompt = await prompt_service.get_prompt(prompt_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if prompt.project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt not found")
+    return await run_service.execution_availability(prompt)
+
 @router.delete("/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def archive_prompt(
     project_id: int,
@@ -233,6 +262,7 @@ async def archive_prompt(
     current_user: UserTable = Depends(get_current_user),
 ) -> None:
     try:
+        await require_project_writer(project_id, current_user.id, service.prompt_repo.session)
         # Verify project ownership
         project_repo = ProjectRepository(service.prompt_repo.session)
         project = await project_repo.get_by_id(project_id, current_user.id)
@@ -258,6 +288,7 @@ async def restore_prompt(
     current_user: UserTable = Depends(get_current_user),
 ) -> PromptRead:
     try:
+        await require_project_writer(project_id, current_user.id, service.prompt_repo.session)
         project_repo = ProjectRepository(service.prompt_repo.session)
         project = await project_repo.get_by_id(project_id, current_user.id)
         if not project:

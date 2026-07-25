@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -11,6 +11,7 @@ from app.database.connection import async_session_maker
 from app.database.models import Prompt, PromptModel
 from app.infrastructure.redis_client import get_redis
 from app.infrastructure.run_queue import PromptRunJob, PromptRunQueue
+from app.repositories.prompt_repository import PromptRepository
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ async def schedule_once() -> int:
     try:
         run_date = datetime.now(ZoneInfo(settings.RUN_TIMEZONE)).date()
         async with async_session_maker() as session:
+            await PromptRepository(session).purge_archived_before(datetime.now(timezone.utc) - timedelta(days=30))
             prompts = (await session.execute(
                 select(Prompt)
                 .options(selectinload(Prompt.models).selectinload(PromptModel.model))

@@ -25,3 +25,10 @@ class AIRunResult(BaseModel):
     new_brands: int
     existing_brands: int
     error_message: str | None = None
+
+
+class PromptModelExecutionAvailability(BaseModel):
+    model_id: int
+    model_name: str
+    can_run: bool
+    claim_source: str | None = None

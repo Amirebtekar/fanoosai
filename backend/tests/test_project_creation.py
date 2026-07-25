@@ -5,6 +5,7 @@ Run with: python backend/tests/test_project_creation.py
 import asyncio
 import sys
 from datetime import datetime
+import pytest
 
 # Add backend to path
 sys.path.insert(0, ".")
@@ -35,6 +36,7 @@ class FakeSession:
     async def delete(self, obj): pass
 
 
+@pytest.mark.asyncio
 async def test_verified_user_can_create():
     session = FakeSession()
     user_repo = UserRepository(session)
@@ -55,6 +57,7 @@ async def test_verified_user_can_create():
         print(f"NOTE: {e} (expected without real user mock)")
 
 
+@pytest.mark.asyncio
 async def test_unverified_user_cannot_create():
     session = FakeSession()
     service = ProjectService(ProjectRepository(session), UserRepository(session))

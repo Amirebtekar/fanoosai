@@ -62,18 +62,26 @@ async function raw<T>(method: string, path: string, headers: Record<string, stri
   return JSON.parse(text)
 }
 
-export interface ProjectRead { id: number; name: string; description?: string | null; website_url?: string | null; created_at: string; updated_at: string }
-export interface ProjectCreate { name: string; description?: string | null; website_url?: string | null }
+export interface ProjectRead { id: number; name: string; description?: string | null; website_url?: string | null; prompt_count: number; model_count: number; created_at: string; updated_at: string }
+export interface ProjectCreate { name: string; description?: string | null; website_url: string; brand_name: string }
+export interface ProjectUpdate { name?: string; description?: string | null }
 export interface PromptRead { id: number; project_id: number; text: string; is_active: boolean; created_at: string; updated_at: string; last_run_at?: string | null; models: AIModelRead[] }
 export interface AIModelRead { id: number; name: string; provider: string; model_key: string; is_active: boolean; created_at?: string | null }
 
 export function listProjects(): Promise<ProjectRead[]> { return authRequest('GET', '/projects/') }
 export function getProject(id: number): Promise<ProjectRead> { return authRequest('GET', '/projects/' + id) }
 export function createProject(body: ProjectCreate): Promise<ProjectRead> { return authRequest('POST', '/projects/', body) }
+export function updateProject(id: number, body: ProjectUpdate): Promise<ProjectRead> { return authRequest('PUT', '/projects/' + id, body) }
 export function deleteProject(id: number): Promise<void> { return authRequest('DELETE', '/projects/' + id) }
 
-export interface PromptCreate { text: string; model_ids?: number[] }
+export interface PromptCreate { text: string; model_ids: number[] }
 export interface AIRunResult { ai_run_id: number; ai_run_status: string; extraction_status: string; brands_found: number; new_brands: number; existing_brands: number; error_message?: string | null }
+export interface PromptModelExecutionAvailability { model_id: number; model_name: string; can_run: boolean; claim_source?: string | null }
+export interface ProjectRun { ai_run_id: number; prompt: string; ai_model: string; status: string; extraction_status: string; created_at: string; completed_at?: string | null }
+export interface Page<T> { items: T[]; page: number; page_size: number; total: number }
+export interface ProjectBrand { id: number; name: string; domain?: string | null; kind: 'owned' | 'competitor'; brand_id?: number | null }
+export interface ProjectDashboard { visibility: number; average_rank?: number | null; appearances: number; last_successful_run?: string | null; competitors: { name: string; appearances: number; average_rank?: number | null }[] }
+export interface AlertItem { id: number; kind: string; message: string; read_at?: string | null; created_at: string }
 
 export function listPrompts(projectId: number, includeArchived?: boolean): Promise<PromptRead[]> { const qs = includeArchived ? '?include_archived=true' : ''; return authRequest('GET', '/projects/' + projectId + '/prompts' + qs) }
 export function createPrompt(projectId: number, body: PromptCreate): Promise<PromptRead> { return authRequest('POST', '/projects/' + projectId + '/prompts', body) }
@@ -82,9 +90,28 @@ export function restorePrompt(projectId: number, promptId: number): Promise<Prom
 export function addPromptModel(projectId: number, promptId: number, modelId: number): Promise<void> { return authRequest('POST', '/projects/' + projectId + '/prompts/' + promptId + '/models/' + modelId) }
 export function removePromptModel(projectId: number, promptId: number, modelId: number): Promise<void> { return authRequest('DELETE', '/projects/' + projectId + '/prompts/' + promptId + '/models/' + modelId) }
 export function runPrompt(projectId: number, promptId: number): Promise<AIRunResult[]> { return authRequest('POST', '/projects/' + projectId + '/prompts/' + promptId + '/run') }
+export function getExecutionAvailability(projectId: number, promptId: number): Promise<PromptModelExecutionAvailability[]> { return authRequest('GET', '/projects/' + projectId + '/prompts/' + promptId + '/execution-availability') }
+export function getProjectRuns(projectId: number, page = 1): Promise<Page<ProjectRun>> { return authRequest('GET', '/projects/' + projectId + '/runs?page=' + page) }
+export function listProjectBrands(projectId: number): Promise<ProjectBrand[]> { return authRequest('GET', '/projects/' + projectId + '/brands') }
+export function addProjectBrand(projectId: number, body: Omit<ProjectBrand, 'id' | 'brand_id'>): Promise<ProjectBrand> { return authRequest('POST', '/projects/' + projectId + '/brands', body) }
+export function deleteProjectBrand(projectId: number, brandId: number): Promise<void> { return authRequest('DELETE', '/projects/' + projectId + '/brands/' + brandId) }
+export function getProjectDashboard(projectId: number): Promise<ProjectDashboard> { return authRequest('GET', '/projects/' + projectId + '/dashboard') }
+export function listAlerts(projectId: number): Promise<AlertItem[]> { return authRequest('GET', '/projects/' + projectId + '/alerts') }
+export function addAlertRule(projectId: number, kind: string, cooldown_hours = 24): Promise<unknown> { return authRequest('POST', `/projects/${projectId}/alert-rules?kind=${kind}&cooldown_hours=${cooldown_hours}`) }
+export function readAlert(projectId: number, alertId: number): Promise<void> { return authRequest('POST', `/projects/${projectId}/alerts/${alertId}/read`) }
+export function exportRunsCsv(projectId: number): void { window.open(`${API_BASE}/projects/${projectId}/runs.csv`, '_blank', 'noopener') }
+export function createReportShare(projectId: number): Promise<{ token: string; expires_at: string }> { return authRequest('POST', `/projects/${projectId}/shares`) }
+export interface SharedReport { runs: { model: string; status: string; created_at: string }[] }
+export function getReportShareUrl(token: string): string { return `${window.location.origin}/shared/${encodeURIComponent(token)}` }
+export function getSharedReport(token: string): Promise<SharedReport> { return request('GET', `/shared/${encodeURIComponent(token)}`) }
+export function revokeReportShare(projectId: number, token: string): Promise<void> { return authRequest('DELETE', `/projects/${projectId}/shares/${token}`) }
+export function listAdminModels(): Promise<AIModelRead[]> { return authRequest('GET', '/ai-models/admin') }
+export function setModelActive(id: number, is_active: boolean): Promise<AIModelRead> { return authRequest('PATCH', `/ai-models/${id}?is_active=${is_active}`) }
 
 export interface PromptRankingItem { brand: string; domain?: string | null; rank: number; ai_model: string; date: string }
+export interface LatestRanking extends PromptRankingItem { confidence?: number | null }
 export function getPromptRankings(promptId: number): Promise<PromptRankingItem[]> { return authRequest('GET', '/prompts/' + promptId + '/rankings') }
+export function getLatestRankings(promptId: number, params: { page?: number; ai_model_id?: number; brand_id?: number; start_date?: string; end_date?: string; sort?: 'rank' | 'date' } = {}): Promise<Page<LatestRanking>> { const query = new URLSearchParams(); Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) }); return authRequest('GET', `/prompts/${promptId}/latest-rankings?${query}`) }
 
 export interface BrandTrendPoint { date: string; rank: number; ai_run_id: number }
 export interface BrandTrend { brand_id: number; brand: string; domain?: string | null; ai_model_id: number; ai_model: string; points: BrandTrendPoint[]; rank_change?: number | null; trend: 'up' | 'down' | 'flat' }

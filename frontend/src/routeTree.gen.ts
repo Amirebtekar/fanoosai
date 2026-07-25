@@ -13,10 +13,13 @@ import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as SharedTokenRouteImport } from './routes/shared.$token'
 import { Route as AuthenticatedProjectsRouteImport } from './routes/_authenticated/projects'
+import { Route as AuthenticatedProjectManagementRouteImport } from './routes/_authenticated/project-management'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
 import { Route as AuthenticatedProjectsIdRouteImport } from './routes/_authenticated/projects_.$id'
+import { Route as AuthenticatedProjectsIdManageRouteImport } from './routes/_authenticated/projects_.$id_.manage'
 import { Route as AuthenticatedProjectsProjectIdPromptsPromptIdRouteImport } from './routes/_authenticated/projects_.$projectId.prompts.$promptId'
 
 const SignInRoute = SignInRouteImport.update({
@@ -38,11 +41,22 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const SharedTokenRoute = SharedTokenRouteImport.update({
+  id: '/shared/$token',
+  path: '/shared/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedProjectsRoute = AuthenticatedProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedProjectManagementRoute =
+  AuthenticatedProjectManagementRouteImport.update({
+    id: '/project-management',
+    path: '/project-management',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -58,6 +72,12 @@ const AuthenticatedProjectsIdRoute = AuthenticatedProjectsIdRouteImport.update({
   path: '/projects/$id',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedProjectsIdManageRoute =
+  AuthenticatedProjectsIdManageRouteImport.update({
+    id: '/projects_/$id_/manage',
+    path: '/projects/$id/manage',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedProjectsProjectIdPromptsPromptIdRoute =
   AuthenticatedProjectsProjectIdPromptsPromptIdRouteImport.update({
     id: '/projects_/$projectId/prompts/$promptId',
@@ -71,8 +91,11 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/project-management': typeof AuthenticatedProjectManagementRoute
   '/projects': typeof AuthenticatedProjectsRoute
+  '/shared/$token': typeof SharedTokenRoute
   '/projects/$id': typeof AuthenticatedProjectsIdRoute
+  '/projects/$id/manage': typeof AuthenticatedProjectsIdManageRoute
   '/projects/$projectId/prompts/$promptId': typeof AuthenticatedProjectsProjectIdPromptsPromptIdRoute
 }
 export interface FileRoutesByTo {
@@ -80,9 +103,12 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/project-management': typeof AuthenticatedProjectManagementRoute
   '/projects': typeof AuthenticatedProjectsRoute
+  '/shared/$token': typeof SharedTokenRoute
   '/': typeof AuthenticatedIndexRoute
   '/projects/$id': typeof AuthenticatedProjectsIdRoute
+  '/projects/$id/manage': typeof AuthenticatedProjectsIdManageRoute
   '/projects/$projectId/prompts/$promptId': typeof AuthenticatedProjectsProjectIdPromptsPromptIdRoute
 }
 export interface FileRoutesById {
@@ -92,9 +118,12 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/project-management': typeof AuthenticatedProjectManagementRoute
   '/_authenticated/projects': typeof AuthenticatedProjectsRoute
+  '/shared/$token': typeof SharedTokenRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/projects_/$id': typeof AuthenticatedProjectsIdRoute
+  '/_authenticated/projects_/$id_/manage': typeof AuthenticatedProjectsIdManageRoute
   '/_authenticated/projects_/$projectId/prompts/$promptId': typeof AuthenticatedProjectsProjectIdPromptsPromptIdRoute
 }
 export interface FileRouteTypes {
@@ -105,8 +134,11 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/analytics'
     | '/dashboard'
+    | '/project-management'
     | '/projects'
+    | '/shared/$token'
     | '/projects/$id'
+    | '/projects/$id/manage'
     | '/projects/$projectId/prompts/$promptId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -114,9 +146,12 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/analytics'
     | '/dashboard'
+    | '/project-management'
     | '/projects'
+    | '/shared/$token'
     | '/'
     | '/projects/$id'
+    | '/projects/$id/manage'
     | '/projects/$projectId/prompts/$promptId'
   id:
     | '__root__'
@@ -125,9 +160,12 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/_authenticated/analytics'
     | '/_authenticated/dashboard'
+    | '/_authenticated/project-management'
     | '/_authenticated/projects'
+    | '/shared/$token'
     | '/_authenticated/'
     | '/_authenticated/projects_/$id'
+    | '/_authenticated/projects_/$id_/manage'
     | '/_authenticated/projects_/$projectId/prompts/$promptId'
   fileRoutesById: FileRoutesById
 }
@@ -135,6 +173,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   RegisterRoute: typeof RegisterRoute
   SignInRoute: typeof SignInRoute
+  SharedTokenRoute: typeof SharedTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -167,11 +206,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/shared/$token': {
+      id: '/shared/$token'
+      path: '/shared/$token'
+      fullPath: '/shared/$token'
+      preLoaderRoute: typeof SharedTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/projects': {
       id: '/_authenticated/projects'
       path: '/projects'
       fullPath: '/projects'
       preLoaderRoute: typeof AuthenticatedProjectsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/project-management': {
+      id: '/_authenticated/project-management'
+      path: '/project-management'
+      fullPath: '/project-management'
+      preLoaderRoute: typeof AuthenticatedProjectManagementRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -195,6 +248,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/projects_/$id_/manage': {
+      id: '/_authenticated/projects_/$id_/manage'
+      path: '/projects/$id/manage'
+      fullPath: '/projects/$id/manage'
+      preLoaderRoute: typeof AuthenticatedProjectsIdManageRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/projects_/$projectId/prompts/$promptId': {
       id: '/_authenticated/projects_/$projectId/prompts/$promptId'
       path: '/projects/$projectId/prompts/$promptId'
@@ -208,18 +268,22 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAnalyticsRoute: typeof AuthenticatedAnalyticsRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedProjectManagementRoute: typeof AuthenticatedProjectManagementRoute
   AuthenticatedProjectsRoute: typeof AuthenticatedProjectsRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedProjectsIdRoute: typeof AuthenticatedProjectsIdRoute
+  AuthenticatedProjectsIdManageRoute: typeof AuthenticatedProjectsIdManageRoute
   AuthenticatedProjectsProjectIdPromptsPromptIdRoute: typeof AuthenticatedProjectsProjectIdPromptsPromptIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAnalyticsRoute: AuthenticatedAnalyticsRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedProjectManagementRoute: AuthenticatedProjectManagementRoute,
   AuthenticatedProjectsRoute: AuthenticatedProjectsRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedProjectsIdRoute: AuthenticatedProjectsIdRoute,
+  AuthenticatedProjectsIdManageRoute: AuthenticatedProjectsIdManageRoute,
   AuthenticatedProjectsProjectIdPromptsPromptIdRoute:
     AuthenticatedProjectsProjectIdPromptsPromptIdRoute,
 }
@@ -231,6 +295,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   RegisterRoute: RegisterRoute,
   SignInRoute: SignInRoute,
+  SharedTokenRoute: SharedTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

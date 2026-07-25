@@ -1,0 +1,106 @@
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { addPromptModel, archivePrompt, createPrompt, getErrorMessage, getExecutionAvailability, listAIModels, listPrompts, removePromptModel, restorePrompt, runPrompt, type AIModelRead, type PromptRead } from '@/lib/api'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { toast } from 'sonner'
+
+export function PromptManagement({ projectId }: { projectId: number }) {
+  const navigate = useNavigate()
+  const [prompts, setPrompts] = useState<PromptRead[]>([])
+  const [models, setModels] = useState<AIModelRead[]>([])
+  const [text, setText] = useState('')
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [creating, setCreating] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const [promptData, modelData] = await Promise.all([listPrompts(projectId, true), listAIModels()])
+      setPrompts(promptData)
+      setModels(modelData)
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'خطا در دریافت پرامپت‌ها'))
+    }
+  }, [projectId])
+
+  useEffect(() => { void load() }, [load])
+
+  const create = async () => {
+    if (!text.trim() || !selectedIds.length) return
+    setCreating(true)
+    try {
+      await createPrompt(projectId, { text: text.trim(), model_ids: selectedIds })
+      toast.success('پرامپت ساخته شد')
+      setText('')
+      setSelectedIds([])
+      setShowCreate(false)
+      load()
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'خطا در ساخت پرامپت'))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const update = async (action: () => Promise<unknown>, success: string, fallback: string) => {
+    try { await action(); toast.success(success); load() }
+    catch (e) { toast.error(getErrorMessage(e, fallback)) }
+  }
+  const active = prompts.filter(prompt => prompt.is_active)
+  const archived = prompts.filter(prompt => !prompt.is_active)
+
+  return (
+    <section className="mb-8">
+      <Button onClick={() => setShowCreate(true)} className="mb-8 border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold">+ پرامپت جدید</Button>
+
+      <Dialog open={showCreate} onOpenChange={setShowCreate}>
+        <DialogContent className="rounded-none border-3 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)] font-vazirmatn">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black">پرامپت جدید</DialogTitle>
+            <DialogDescription className="font-medium text-muted-text">متن پرامپت و مدل‌ها را انتخاب کنید.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder="متن پرامپت را وارد کنید..." rows={3} className="w-full resize-y rounded-none border-3 border-border p-3 font-medium outline-none font-vazirmatn" />
+          <details className="border-2 border-border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-bold">انتخاب مدل</summary>
+            <div className="border-t-2 border-border p-3"><ModelSelector models={models} selectedIds={selectedIds} onToggle={id => setSelectedIds(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])} /></div>
+          </details>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowCreate(false)} className="border-border font-bold">انصراف</Button>
+            <Button disabled={!text.trim() || !selectedIds.length || creating} onClick={create} className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50">{creating ? 'در حال ساخت...' : 'ساخت پرامپت'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <h2 className="mb-4 text-lg font-black">پرامپت‌های فعال ({active.length})</h2>
+      <div className="space-y-4">
+        {active.map(prompt => <PromptCard key={prompt.id} prompt={prompt} allModels={models} onRun={() => update(async () => {
+          const available = await getExecutionAvailability(projectId, prompt.id)
+          if (!available.some(model => model.can_run)) throw new Error('همه مدل‌ها امروز اجرا شده‌اند.')
+          return runPrompt(projectId, prompt.id)
+        }, 'پرامپت اجرا شد', 'خطا در اجرای پرامپت')} onArchive={() => update(() => archivePrompt(projectId, prompt.id), 'پرامپت بایگانی شد', 'خطا در بایگانی')} onAddModel={modelId => update(() => addPromptModel(projectId, prompt.id, modelId), 'مدل اضافه شد', 'خطا در افزودن مدل')} onRemoveModel={modelId => update(() => removePromptModel(projectId, prompt.id, modelId), 'مدل حذف شد', 'خطا در حذف مدل')} onNavigate={() => navigate({ to: '/projects/' + projectId + '/prompts/' + prompt.id })} />)}
+        {!active.length && <p className="text-sm font-medium text-muted-text">پرامپت فعالی وجود ندارد.</p>}
+      </div>
+
+      {!!archived.length && <details className="mt-8 border-2 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)]"><summary className="cursor-pointer px-6 py-4 text-lg font-black">بایگانی ({archived.length})</summary><div className="space-y-4 p-6"><p className="text-sm text-muted-text">پرامپت‌های بایگانی‌شده پس از ۳۰ روز حذف می‌شوند.</p>{archived.map(prompt => <PromptCard key={prompt.id} prompt={prompt} allModels={models} onRestore={() => update(() => restorePrompt(projectId, prompt.id), 'پرامپت بازگردانی شد', 'خطا در بازگردانی')} onNavigate={() => navigate({ to: '/projects/' + projectId + '/prompts/' + prompt.id })} />)}</div></details>}
+    </section>
+  )
+}
+
+function ModelSelector({ models, selectedIds, onToggle }: { models: AIModelRead[]; selectedIds: number[]; onToggle: (id: number) => void }) {
+  const [search, setSearch] = useState('')
+  const filtered = models.filter(model => !search || model.name.toLowerCase().includes(search.toLowerCase()))
+  return <div><input type="search" placeholder="جستجوی مدل..." value={search} onChange={e => setSearch(e.target.value)} className="mb-2 w-full rounded-none border-3 border-border p-2.5 font-medium outline-none font-vazirmatn" /><div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">{filtered.map(model => <label key={model.id} className="flex cursor-pointer items-center gap-2 font-medium"><input type="checkbox" checked={selectedIds.includes(model.id)} onChange={() => onToggle(model.id)} className="size-4 accent-accent-neon" />{model.name}</label>)}{!filtered.length && <span className="p-1 text-sm text-muted-text">مدلی یافت نشد</span>}</div>{selectedIds.length > 0 && <div className="mt-1.5 text-xs text-muted-text">{selectedIds.length} مدل انتخاب شده</div>}</div>
+}
+
+function daysUntilArchiveRemoval(archivedAt: string) {
+  return Math.max(0, Math.ceil((Date.parse(archivedAt) + 30 * 24 * 60 * 60 * 1000 - Date.now()) / (24 * 60 * 60 * 1000)))
+}
+
+function PromptCard({ prompt, allModels, onRun, onArchive, onRestore, onAddModel, onRemoveModel, onNavigate }: { prompt: PromptRead; allModels: AIModelRead[]; onRun?: () => void; onArchive?: () => void; onRestore?: () => void; onAddModel?: (id: number) => void; onRemoveModel?: (id: number) => void; onNavigate: () => void }) {
+  const available = allModels.filter(model => !prompt.models.some(selected => selected.id === model.id))
+  return <Card onClick={e => { if ((e.target as HTMLElement).closest('.prompt-action')) return; onNavigate() }} className="cursor-pointer border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader className="flex-row items-start justify-between gap-3"><p className="flex-1 whitespace-pre-wrap text-sm font-medium leading-relaxed">{prompt.text}</p><div className="flex shrink-0 gap-2">{onRun && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRun}>اجرا</button>}{onArchive && <button type="button" className="prompt-action border-3 border-border bg-card px-3 py-1.5 text-xs font-bold" onClick={onArchive}>بایگانی</button>}{onRestore && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRestore}>بازگردانی</button>}</div></CardHeader><CardContent><div className="flex flex-wrap items-center gap-2">{prompt.models.map(model => <span key={model.id} className="prompt-action inline-flex items-center gap-1 border-2 border-border px-2 py-0.5 text-xs font-bold">{model.name}{onRemoveModel && <button type="button" onClick={() => onRemoveModel(model.id)}>×</button>}</span>)}{onAddModel && available.length > 0 && <select className="prompt-action border-2 border-border bg-card p-1 text-xs" defaultValue="" onChange={e => { if (e.target.value) { onAddModel(Number(e.target.value)); e.target.value = '' } }}><option value="" disabled>+ مدل</option>{available.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select>}</div>{!prompt.is_active && <p className="mt-3 text-xs font-bold text-muted-text">حذف خودکار تا {daysUntilArchiveRemoval(prompt.updated_at)} روز دیگر</p>}</CardContent></Card>
+}

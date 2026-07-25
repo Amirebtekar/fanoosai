@@ -11,7 +11,7 @@ EXTRACTION_PROMPT = """Extract brands from the original AI response below.
 Preserve appearance order and assign ranks starting at 1. Include an official root
 Domain only when highly confident; otherwise use null. Never guess a domain.
 Return only valid JSON with this exact shape:
-{{"brands":[{{"rank":1,"name":"Example","domain":null,"confidence":0.0}}]}}
+{{"brands":[{{"rank":1,"name":"Example","domain":"example.com",confidence":1.0}}]}}
 
 Original AI response:
 {response_text}
