@@ -232,15 +232,17 @@ endpointهای تحلیل اصلی را دارد: dashboard پروژه، تحل�
 
 ### `backend/app/analytics/extra_router.py`
 
+Brand details are implemented only in `backend/app/analytics/router.py`; this module owns run export and report sharing.
+
 endpointهای تحلیل تکمیلی را دارد: صفحه‌بندی اجراهای پروژه، خروجی CSV، ساخت/لغو لینک اشتراک زمان‌دار، گزارش عمومی با token و جزئیات یک برند؛ همه به جز گزارش public، مالکیت پروژه/برند را کنترل می‌کنند.
 
 ## migrationهای قدیمی
 
-### `backend/migrations_old/001_create_brands_and_run_brands.sql`
+### Removed: `backend/migrations_old/001_create_brands_and_run_brands.sql`
 
 SQL migration قدیمی برای ساخت جدول‌های `brands` و `run_brands` و index/constraintهای آن‌ها است؛ این فایل نشان می‌دهد برندها چگونه به یک اجرای AI متصل می‌شوند.
 
-### `backend/migrations_old/versions/20250308_add_ai_run_extraction_fields.py`
+### Removed: `backend/migrations_old/versions/20250308_add_ai_run_extraction_fields.py`
 
 migration قدیمی Alembic است که فیلدهای وضعیت/خطای استخراج برند را به جدول اجرای AI اضافه یا در downgrade حذف می‌کند.
 

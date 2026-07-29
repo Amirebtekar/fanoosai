@@ -33,7 +33,6 @@ export function AnalyticsPage() {
   const displayedPromptId = selectedPrompt || (latestPrompt ? String(latestPrompt.id) : '')
 
   useEffect(() => {
-    setLoading(true)
     listProjects()
       .then(setProjects)
       .catch(() => setError('دریافت پروژه‌ها ممکن نشد'))
@@ -41,15 +40,15 @@ export function AnalyticsPage() {
   }, [])
 
   useEffect(() => {
-    if (!selectedProject) { setPrompts([]); return }
+    if (!selectedProject) { void Promise.resolve().then(() => setPrompts([])); return }
     listPrompts(Number(selectedProject))
       .then(setPrompts)
       .catch(() => setError('دریافت پرامپت‌ها ممکن نشد'))
   }, [selectedProject])
 
   useEffect(() => {
-    if (!displayedPromptId) { setRankings([]); return }
-    setLoadingRankings(true)
+    if (!displayedPromptId) { void Promise.resolve().then(() => setRankings([])); return }
+    void Promise.resolve().then(() => setLoadingRankings(true))
     getPromptRankings(Number(displayedPromptId))
       .then(setRankings)
       .catch(() => setError('دریافت آنالیز ممکن نشد'))
@@ -57,8 +56,8 @@ export function AnalyticsPage() {
   }, [displayedPromptId])
 
   useEffect(() => {
-    if (!displayedPromptId) { setTrends(null); return }
-    setTrendLoading(true)
+    if (!displayedPromptId) { void Promise.resolve().then(() => setTrends(null)); return }
+    void Promise.resolve().then(() => setTrendLoading(true))
     getPromptBrandTrends(Number(displayedPromptId))
       .then(setTrends)
       .catch(() => setTrends(null))

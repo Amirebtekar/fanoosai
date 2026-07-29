@@ -27,7 +27,10 @@ export default defineConfig(
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': [
         'warn',
-        { allowConstantExport: true },
+        {
+          allowConstantExport: true,
+          allowExportNames: ['Route', 'relativeDate', 'promptLines', 'modelResponseText'],
+        },
       ],
       'no-console': 'error',
       'no-unused-vars': 'off',

@@ -1,5 +1,11 @@
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
+
+from app.analytics.extra_router import create_share, revoke_share
+from app.repositories.project_repository import ProjectRepository
 
 ROOT = Path(__file__).parents[2]
 
@@ -11,11 +17,10 @@ def test_ai_gateway_management_routes_are_not_public():
 
 def test_analytics_queries_enforce_resource_ownership():
     analytics = (ROOT / "backend/app/analytics/router.py").read_text(encoding="utf-8")
-    extra = (ROOT / "backend/app/analytics/extra_router.py").read_text(encoding="utf-8")
     assert "await owned_prompt(prompt_id, session, user)" in analytics
     assert "project_id=prompt.project_id" in analytics
-    assert "await owned_brand(brand_id, session, user)" in extra
-    assert "OrganizationMember.user_id == user.id" in extra
+    assert "OrganizationMember.user_id == user.id" in analytics
+    assert "Prompt.project_id == project_id" in analytics
 
 
 def test_frontend_uses_http_only_cookie_auth_contract():
@@ -49,3 +54,22 @@ def test_sms_response_parser_accepts_provider_success_shapes():
     assert not SMSClient._is_success_response("0")
     assert not SMSClient._is_success_response('{"Value": "-1", "RetStatus": 0}')
     assert not SMSClient._is_success_response("invalid response")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", [create_share, revoke_share])
+async def test_viewer_cannot_manage_report_shares(monkeypatch, endpoint):
+    async def can_read(self, project_id, user_id):
+        return True
+
+    async def can_manage(self, project_id, user_id):
+        return False
+
+    monkeypatch.setattr(ProjectRepository, "can_read", can_read)
+    monkeypatch.setattr(ProjectRepository, "can_manage_project", can_manage)
+
+    args = (1, "token") if endpoint is revoke_share else (1,)
+    with pytest.raises(HTTPException) as exc:
+        await endpoint(*args, session=object(), user=SimpleNamespace(id=7))
+
+    assert exc.value.status_code == 403

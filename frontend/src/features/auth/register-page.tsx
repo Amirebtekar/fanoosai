@@ -11,7 +11,6 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export function RegisterPage() {
   const navigate = useNavigate()
   const { setUser } = useAuthStore()
-  const setToken = (_token: string) => undefined
   const [step, setStep] = useState<'profile' | 'otp'>('profile')
   const [firstName, setFirstName] = useState(''); const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState(''); const [phone, setPhone] = useState('')
@@ -42,7 +41,7 @@ export function RegisterPage() {
   const handleVerifyOtp = async () => {
     clearAlerts(); const code = otp.join(''); if (code.length !== 6) return
     setLoading(true)
-    try { const res = await verifySms({ phone, code }); if (res.access_token) setToken(res.access_token); if (res.user) setUser(res.user); setSuccess('ثبت‌نام با موفقیت انجام شد!'); setTimeout(() => navigate({ to: '/' }), 1200) }
+    try { const res = await verifySms({ phone, code }); if (res.user) setUser(res.user); setSuccess('ثبت‌نام با موفقیت انجام شد!'); setTimeout(() => navigate({ to: '/' }), 1200) }
     catch (e) { setError(getErrorMessage(e, 'کد وارد شده صحیح نیست')) }
     finally { setLoading(false) }
   }

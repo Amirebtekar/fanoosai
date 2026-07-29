@@ -64,7 +64,7 @@ async function raw<T>(method: string, path: string, headers: Record<string, stri
 
 export interface ProjectRead { id: number; name: string; description?: string | null; website_url?: string | null; prompt_count: number; model_count: number; created_at: string; updated_at: string }
 export interface ProjectCreate { name: string; description?: string | null; website_url: string; brand_name: string }
-export interface ProjectUpdate { name?: string; description?: string | null }
+export interface ProjectUpdate { name?: string; description?: string | null; website_url?: string }
 export interface PromptRead { id: number; project_id: number; text: string; is_active: boolean; created_at: string; updated_at: string; last_run_at?: string | null; models: AIModelRead[] }
 export interface AIModelRead { id: number; name: string; provider: string; model_key: string; is_active: boolean; created_at?: string | null }
 
@@ -80,7 +80,9 @@ export interface PromptModelExecutionAvailability { model_id: number; model_name
 export interface ProjectRun { ai_run_id: number; prompt: string; ai_model: string; status: string; extraction_status: string; created_at: string; completed_at?: string | null }
 export interface Page<T> { items: T[]; page: number; page_size: number; total: number }
 export interface ProjectBrand { id: number; name: string; domain?: string | null; kind: 'owned' | 'competitor'; brand_id?: number | null }
+export interface ObservedBrand { brand_id: number; name: string; domain: string }
 export interface ProjectDashboard { visibility: number; average_rank?: number | null; appearances: number; last_successful_run?: string | null; competitors: { name: string; appearances: number; average_rank?: number | null }[] }
+export interface ModelPerformance { ai_model: string; total_runs: number; successful_runs: number; direct_successful_runs: number; fallback_successful_runs: number; failed_runs: number; success_rate: number }
 export interface AlertItem { id: number; kind: string; message: string; read_at?: string | null; created_at: string }
 
 export function listPrompts(projectId: number, includeArchived?: boolean): Promise<PromptRead[]> { const qs = includeArchived ? '?include_archived=true' : ''; return authRequest('GET', '/projects/' + projectId + '/prompts' + qs) }
@@ -93,9 +95,11 @@ export function runPrompt(projectId: number, promptId: number): Promise<AIRunRes
 export function getExecutionAvailability(projectId: number, promptId: number): Promise<PromptModelExecutionAvailability[]> { return authRequest('GET', '/projects/' + projectId + '/prompts/' + promptId + '/execution-availability') }
 export function getProjectRuns(projectId: number, page = 1): Promise<Page<ProjectRun>> { return authRequest('GET', '/projects/' + projectId + '/runs?page=' + page) }
 export function listProjectBrands(projectId: number): Promise<ProjectBrand[]> { return authRequest('GET', '/projects/' + projectId + '/brands') }
+export function listObservedBrands(projectId: number): Promise<ObservedBrand[]> { return authRequest('GET', '/projects/' + projectId + '/observed-brands') }
 export function addProjectBrand(projectId: number, body: Omit<ProjectBrand, 'id' | 'brand_id'>): Promise<ProjectBrand> { return authRequest('POST', '/projects/' + projectId + '/brands', body) }
 export function deleteProjectBrand(projectId: number, brandId: number): Promise<void> { return authRequest('DELETE', '/projects/' + projectId + '/brands/' + brandId) }
 export function getProjectDashboard(projectId: number): Promise<ProjectDashboard> { return authRequest('GET', '/projects/' + projectId + '/dashboard') }
+export function getModelPerformance(projectId: number): Promise<ModelPerformance[]> { return authRequest('GET', '/projects/' + projectId + '/model-performance') }
 export function listAlerts(projectId: number): Promise<AlertItem[]> { return authRequest('GET', '/projects/' + projectId + '/alerts') }
 export function addAlertRule(projectId: number, kind: string, cooldown_hours = 24): Promise<unknown> { return authRequest('POST', `/projects/${projectId}/alert-rules?kind=${kind}&cooldown_hours=${cooldown_hours}`) }
 export function readAlert(projectId: number, alertId: number): Promise<void> { return authRequest('POST', `/projects/${projectId}/alerts/${alertId}/read`) }

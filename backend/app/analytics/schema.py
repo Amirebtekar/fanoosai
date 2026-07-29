@@ -14,6 +14,15 @@ class DashboardSummary(BaseModel):
     appearances: int = 0
     competitors: list[dict] = []
 
+class ModelPerformance(BaseModel):
+    ai_model: str
+    total_runs: int
+    successful_runs: int
+    direct_successful_runs: int
+    fallback_successful_runs: int
+    failed_runs: int
+    success_rate: float
+
 class PromptAnalytics(BaseModel):
     prompt_id: int
     prompt: str

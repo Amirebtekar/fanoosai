@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import { addAlertRule, addProjectBrand, createReportShare, deleteProjectBrand, exportRunsCsv, getProjectDashboard, getReportShareUrl, listAlerts, listProjectBrands, readAlert, revokeReportShare, type AlertItem, type ProjectBrand, type ProjectDashboard } from '@/lib/api'
+import { addAlertRule, addProjectBrand, createReportShare, deleteProjectBrand, exportRunsCsv, getModelPerformance, getProjectDashboard, getReportShareUrl, listAlerts, listObservedBrands, listProjectBrands, readAlert, revokeReportShare, type AlertItem, type ModelPerformance, type ObservedBrand, type ProjectBrand, type ProjectDashboard } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,7 @@ export function ProjectManagementSections({ projectId }: { projectId: number }) 
     <PromptManagement projectId={projectId} />
     <CompetitorSettings projectId={projectId} />
     <ProjectKpis projectId={projectId} />
+    <ModelPerformanceTable projectId={projectId} />
     <AlertInbox projectId={projectId} />
     <ReportActions projectId={projectId} />
   </>
@@ -35,14 +36,16 @@ export function ProjectManagementSections({ projectId }: { projectId: number }) 
 
 function CompetitorSettings({ projectId }: { projectId: number }) {
   const [competitors, setCompetitors] = useState<ProjectBrand[]>([])
-  const [name, setName] = useState('')
-  const [domain, setDomain] = useState('')
-  const load = useCallback(() => listProjectBrands(projectId).then(brands => setCompetitors(brands.filter(brand => brand.kind === 'competitor'))).catch(() => toast.error('خطا در دریافت رقبا')), [projectId])
+  const [observedBrands, setObservedBrands] = useState<ObservedBrand[]>([])
+  const [selectedBrandId, setSelectedBrandId] = useState('')
+  const load = useCallback(() => Promise.all([listProjectBrands(projectId), listObservedBrands(projectId)]).then(([brands, observed]) => { setCompetitors(brands.filter(brand => brand.kind === 'competitor')); setObservedBrands(observed) }).catch(() => toast.error('خطا در دریافت برندها')), [projectId])
   useEffect(() => { void load() }, [load])
-  const add = async () => { if (!name.trim()) return; await addProjectBrand(projectId, { name: name.trim(), domain: domain.trim() || null, kind: 'competitor' }); setName(''); setDomain(''); load() }
+  const availableBrands = observedBrands.filter(brand => !competitors.some(competitor => competitor.domain === brand.domain))
+  const add = async () => { const brand = availableBrands.find(item => item.brand_id === Number(selectedBrandId)); if (!brand) return; await addProjectBrand(projectId, { name: brand.name, domain: brand.domain, kind: 'competitor' }); setSelectedBrandId(''); load() }
   return <Card className="mb-8 border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader><h2 className="text-lg font-black">رقبا</h2></CardHeader><CardContent className="space-y-3">
-    <p className="text-sm text-muted-text">رقبایی را که باید در گزارش‌ها مقایسه شوند ثبت کنید.</p>
-    <div className="flex flex-wrap gap-2"><input value={name} onChange={e => setName(e.target.value)} placeholder="نام رقیب" aria-label="نام رقیب" className="border-2 border-border p-2" /><input value={domain} onChange={e => setDomain(e.target.value)} placeholder="domain.com" aria-label="دامنه رقیب" className="border-2 border-border p-2" /><Button onClick={add}>افزودن</Button></div>
+    <p className="text-sm text-muted-text">از برندهای شناسایی‌شده در اجرای این پروژه انتخاب کنید.</p>
+    <div className="flex flex-wrap gap-2"><select value={selectedBrandId} onChange={e => setSelectedBrandId(e.target.value)} aria-label="برند شناسایی‌شده" className="min-w-56 border-2 border-border bg-card p-2"><option value="">انتخاب برند</option>{availableBrands.map(brand => <option key={brand.brand_id} value={brand.brand_id}>{brand.name} ({brand.domain})</option>)}</select><Button onClick={add} disabled={!selectedBrandId}>افزودن</Button></div>
+    {!availableBrands.length && <p className="text-sm text-muted-text">برند جدیدی برای انتخاب وجود ندارد.</p>}
     {competitors.map(brand => <div key={brand.id} className="flex justify-between border-2 border-border p-2"><span>{brand.name} {brand.domain && `(${brand.domain})`}</span><button onClick={() => deleteProjectBrand(projectId, brand.id).then(load)} aria-label={`حذف ${brand.name}`}>×</button></div>)}
   </CardContent></Card>
 }
@@ -54,6 +57,37 @@ function ProjectKpis({ projectId }: { projectId: number }) {
   if (error) return <p className="mb-6 text-sm text-red-600">دریافت شاخص‌ها ممکن نشد.</p>
   if (!data) return <Skeleton className="mb-6 h-24 w-full bg-accent" />
   return <Card className="mb-8 border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader><h2 className="text-lg font-black">شاخص‌های پروژه</h2></CardHeader><CardContent className="space-y-3"><div className="grid grid-cols-3 gap-2 text-center"><div>نمایش‌پذیری<br /><b>{data.visibility}%</b></div><div>میانگین رتبه<br /><b>{data.average_rank?.toFixed(1) ?? '—'}</b></div><div>حضور<br /><b>{data.appearances}</b></div></div><p className="text-sm text-muted-text">آخرین اجرای موفق: {data.last_successful_run ? new Date(data.last_successful_run).toLocaleString('fa-IR') : '—'}</p>{data.competitors.map(item => <p key={item.name} className="border-t pt-2 text-sm">{item.name}: رتبه {item.average_rank?.toFixed(1) ?? '—'}، {item.appearances} حضور</p>)}</CardContent></Card>
+}
+
+function ModelPerformanceTable({ projectId }: { projectId: number }) {
+  const [models, setModels] = useState<ModelPerformance[] | null>(null)
+  const [error, setError] = useState(false)
+  useEffect(() => { getModelPerformance(projectId).then(setModels).catch(() => setError(true)) }, [projectId])
+  if (error) return <p className="mb-6 text-sm text-red-600">دریافت عملکرد مدل‌ها ممکن نشد.</p>
+  if (!models) return <Skeleton className="mb-6 h-48 w-full bg-accent" />
+  return <Card className="mb-8 border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader><h2 className="text-lg font-black">عملکرد مدل‌ها</h2></CardHeader><CardContent><ModelPerformanceTableContent models={models} /></CardContent></Card>
+}
+
+export function ModelPerformanceTableContent({ models }: { models: ModelPerformance[] }) {
+  if (!models.length) return <p className="text-sm text-muted-text">هنوز اجرایی برای مدل‌ها ثبت نشده است.</p>
+  return <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-right text-sm">
+    <thead className="border-b-2 border-border text-muted-text"><tr>
+      <th className="p-2" scope="col">مدل</th>
+      <th className="p-2" scope="col">کل درخواست‌ها</th>
+      <th className="p-2 text-emerald-700" scope="col">موفق مستقیم</th>
+      <th className="p-2 text-amber-700" scope="col">موفق با AvalAI</th>
+      <th className="p-2 text-red-600" scope="col">ناموفق نهایی</th>
+      <th className="p-2" scope="col">نرخ موفقیت</th>
+    </tr></thead>
+    <tbody>{models.map(model => <tr key={model.ai_model} className="border-b border-border/60">
+      <td className="p-2 font-bold">{model.ai_model}</td>
+      <td className="p-2">{model.total_runs.toLocaleString('fa-IR')}</td>
+      <td className="p-2 font-bold text-emerald-700">{model.direct_successful_runs.toLocaleString('fa-IR')}</td>
+      <td className="p-2 font-bold text-amber-700">{model.fallback_successful_runs.toLocaleString('fa-IR')}</td>
+      <td className="p-2 font-bold text-red-600">{model.failed_runs.toLocaleString('fa-IR')}</td>
+      <td className="p-2">{model.success_rate.toLocaleString('fa-IR')}٪</td>
+    </tr>)}</tbody>
+  </table></div>
 }
 
 function AlertInbox({ projectId }: { projectId: number }) {

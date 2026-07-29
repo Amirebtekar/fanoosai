@@ -10,11 +10,28 @@ import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { toast } from 'sonner'
 import { Loader2, RotateCcw, SlidersHorizontal, FileText } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import { Badge } from '@/components/ui/badge'
 import { getPromptBrandTrends, getLatestRankings, getPromptHistory, listPrompts, getErrorMessage, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
 import { BrandTrendChart } from './brand-trend-chart'
 
 const RANK_BG = ['#ef4444', '#dc2626', '#b91c1c', '#f5f0e8', '#e0ddd5']
+
+export function modelResponseText(responseText: string | null): string {
+  if (!responseText) return 'برای این اجرا پاسخی ثبت نشده است.'
+  try {
+    const payload = JSON.parse(responseText)
+    const openAIText = payload?.choices?.[0]?.message?.content
+    if (typeof openAIText === 'string') return openAIText
+    const geminiText = payload?.candidates?.[0]?.content?.parts?.map((part: { text?: unknown } | null) => part?.text).filter((text: unknown) => typeof text === 'string').join('')
+    if (geminiText) return geminiText
+    const claudeText = Array.isArray(payload?.content)
+      ? payload.content.filter((part: { type?: unknown; text?: unknown } | null) => part?.type === 'text' && typeof part.text === 'string').map((part: { text?: unknown }) => part.text as string).join('')
+      : ''
+    if (claudeText) return claudeText
+  } catch { /* Older plain-text responses need no conversion. */ }
+  return responseText
+}
 
 export function PromptAnalyticsPage() {
   const { projectId, promptId } = useParams({ from: '/_authenticated/projects_/$projectId/prompts/$promptId' })
@@ -38,7 +55,6 @@ export function PromptAnalyticsPage() {
   const [rankingTotal, setRankingTotal] = useState(0)
 
   const fetchData = useCallback(async () => {
-    setLoading(true)
     try {
       const [promptsData, rankingsData, trendData] = await Promise.all([listPrompts(Number(projectId)), getLatestRankings(Number(promptId)), getPromptBrandTrends(Number(promptId))])
       setPrompt(promptsData.find(p => p.id === Number(promptId)) || null)
@@ -50,7 +66,7 @@ export function PromptAnalyticsPage() {
     finally { setLoading(false) }
   }, [projectId, promptId])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => { void Promise.resolve().then(fetchData) }, [fetchData])
 
   const applyTrendFilters = async () => {
     if (startDate && endDate && startDate > endDate) {
@@ -143,8 +159,8 @@ export function PromptAnalyticsPage() {
                 <FileText className="size-5" aria-hidden="true" />
               </div>
               <div>
-                <CardTitle className="text-base font-bold">پاسخ خام مدل</CardTitle>
-                <CardDescription className="mt-1 text-sm font-medium text-muted-text">مدل و تاریخ اجرا را انتخاب کنید تا پاسخ خام دریافت‌شده از مدل را ببینید.</CardDescription>
+                <CardTitle className="text-base font-bold">پاسخ مدل</CardTitle>
+                <CardDescription className="mt-1 text-sm font-medium text-muted-text">مدل و تاریخ اجرا را انتخاب کنید تا پاسخ دریافت‌شده از مدل را ببینید.</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -166,7 +182,7 @@ export function PromptAnalyticsPage() {
               </div>
               <Button type="button" onClick={loadPromptHistory} disabled={historyLoading} className="h-11 font-semibold">
                 {historyLoading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-                نمایش پاسخ خام
+                نمایش پاسخ
               </Button>
             </div>
             {history.length > 0 ? (
@@ -177,7 +193,7 @@ export function PromptAnalyticsPage() {
                       <span>{run.ai_model}</span>
                       <span>{new Date(run.run_date).toLocaleString('fa-IR')}</span>
                     </div>
-                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words p-4 text-sm leading-7" dir="auto">{run.response_text || 'برای این اجرا پاسخ خامی ثبت نشده است.'}</pre>
+                    <div className="max-h-80 overflow-auto break-words p-4 text-sm leading-7 [&_a]:underline [&_h1]:mb-4 [&_h1]:text-xl [&_h1]:font-black [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-black [&_h3]:mb-2 [&_h3]:font-bold [&_hr]:my-4 [&_li]:ms-5 [&_ol]:my-3 [&_ol]:list-decimal [&_p]:my-3 [&_strong]:font-black [&_ul]:my-3 [&_ul]:list-disc" dir="auto"><ReactMarkdown>{modelResponseText(run.response_text)}</ReactMarkdown></div>
                   </div>
                 ))}
               </div>

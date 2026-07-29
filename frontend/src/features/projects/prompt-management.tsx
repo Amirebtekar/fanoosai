@@ -4,7 +4,12 @@ import { addPromptModel, archivePrompt, createPrompt, getErrorMessage, getExecut
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+
+export function promptLines(value: string) {
+  return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+}
 
 export function PromptManagement({ projectId }: { projectId: number }) {
   const navigate = useNavigate()
@@ -25,18 +30,19 @@ export function PromptManagement({ projectId }: { projectId: number }) {
     }
   }, [projectId])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   const create = async () => {
-    if (!text.trim() || !selectedIds.length) return
+    const promptTexts = promptLines(text)
+    if (!promptTexts.length || !selectedIds.length) return
     setCreating(true)
     try {
-      await createPrompt(projectId, { text: text.trim(), model_ids: selectedIds })
-      toast.success('پرامپت ساخته شد')
+      await Promise.all(promptTexts.map(promptText => createPrompt(projectId, { text: promptText, model_ids: selectedIds })))
+      toast.success(`${promptTexts.length} پرامپت ساخته شد`)
       setText('')
       setSelectedIds([])
       setShowCreate(false)
-      load()
+      await load()
     } catch (e) {
       toast.error(getErrorMessage(e, 'خطا در ساخت پرامپت'))
     } finally {
@@ -45,7 +51,7 @@ export function PromptManagement({ projectId }: { projectId: number }) {
   }
 
   const update = async (action: () => Promise<unknown>, success: string, fallback: string) => {
-    try { await action(); toast.success(success); load() }
+    try { await action(); toast.success(success); await load() }
     catch (e) { toast.error(getErrorMessage(e, fallback)) }
   }
   const active = prompts.filter(prompt => prompt.is_active)
@@ -59,10 +65,10 @@ export function PromptManagement({ projectId }: { projectId: number }) {
         <DialogContent className="rounded-none border-3 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)] font-vazirmatn">
           <DialogHeader>
             <DialogTitle className="text-xl font-black">پرامپت جدید</DialogTitle>
-            <DialogDescription className="font-medium text-muted-text">متن پرامپت و مدل‌ها را انتخاب کنید.</DialogDescription>
+            <DialogDescription className="font-medium text-muted-text">هر خط یک پرامپت جداگانه است؛ مدل‌های انتخاب‌شده برای همه اعمال می‌شود.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-          <textarea value={text} onChange={e => setText(e.target.value)} placeholder="متن پرامپت را وارد کنید..." rows={3} className="w-full resize-y rounded-none border-3 border-border p-3 font-medium outline-none font-vazirmatn" />
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder="هر خط یک پرامپت..." rows={3} className="w-full resize-y rounded-none border-3 border-border p-3 font-medium outline-none font-vazirmatn" />
           <details className="border-2 border-border">
             <summary className="cursor-pointer px-3 py-2 text-sm font-bold">انتخاب مدل</summary>
             <div className="border-t-2 border-border p-3"><ModelSelector models={models} selectedIds={selectedIds} onToggle={id => setSelectedIds(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])} /></div>
@@ -70,7 +76,7 @@ export function PromptManagement({ projectId }: { projectId: number }) {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowCreate(false)} className="border-border font-bold">انصراف</Button>
-            <Button disabled={!text.trim() || !selectedIds.length || creating} onClick={create} className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50">{creating ? 'در حال ساخت...' : 'ساخت پرامپت'}</Button>
+            <Button disabled={!promptLines(text).length || !selectedIds.length || creating} onClick={create} className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50">{creating ? 'در حال ساخت...' : 'ساخت پرامپت‌ها'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -100,7 +106,24 @@ function daysUntilArchiveRemoval(archivedAt: string) {
   return Math.max(0, Math.ceil((Date.parse(archivedAt) + 30 * 24 * 60 * 60 * 1000 - Date.now()) / (24 * 60 * 60 * 1000)))
 }
 
-function PromptCard({ prompt, allModels, onRun, onArchive, onRestore, onAddModel, onRemoveModel, onNavigate }: { prompt: PromptRead; allModels: AIModelRead[]; onRun?: () => void; onArchive?: () => void; onRestore?: () => void; onAddModel?: (id: number) => void; onRemoveModel?: (id: number) => void; onNavigate: () => void }) {
+type PromptCardProps = { prompt: PromptRead; allModels: AIModelRead[]; onRun?: () => void; onArchive?: () => void; onRestore?: () => void; onAddModel?: (id: number) => void; onRemoveModel?: (id: number) => void; onNavigate: () => void }
+
+function PromptCard(props: PromptCardProps) {
+  const [isRunning, setIsRunning] = useState(false)
+  const run = async () => {
+    setIsRunning(true)
+    try { await props.onRun?.() }
+    finally { setIsRunning(false) }
+  }
+
+  return <div className="space-y-2">
+    <div className={isRunning ? 'pointer-events-none opacity-70' : undefined}><PromptCardStatic {...props} onRun={props.onRun ? run : undefined} /></div>
+    {isRunning && <div role="status" aria-live="polite" className="overflow-hidden border-2 border-border bg-card p-3 text-sm font-bold"><div className="mb-2 flex items-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" />در حال اجرای پرامپت...</div><div className="h-1.5 overflow-hidden bg-muted"><div className="h-full w-1/2 animate-pulse bg-accent-neon" /></div></div>}
+    <p className="px-1 text-xs font-medium text-muted-text">آخرین اجرا: {props.prompt.last_run_at ? new Date(props.prompt.last_run_at).toLocaleString('fa-IR') : 'هنوز اجرا نشده'}</p>
+  </div>
+}
+
+function PromptCardStatic({ prompt, allModels, onRun, onArchive, onRestore, onAddModel, onRemoveModel, onNavigate }: PromptCardProps) {
   const available = allModels.filter(model => !prompt.models.some(selected => selected.id === model.id))
   return <Card onClick={e => { if ((e.target as HTMLElement).closest('.prompt-action')) return; onNavigate() }} className="cursor-pointer border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader className="flex-row items-start justify-between gap-3"><p className="flex-1 whitespace-pre-wrap text-sm font-medium leading-relaxed">{prompt.text}</p><div className="flex shrink-0 gap-2">{onRun && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRun}>اجرا</button>}{onArchive && <button type="button" className="prompt-action border-3 border-border bg-card px-3 py-1.5 text-xs font-bold" onClick={onArchive}>بایگانی</button>}{onRestore && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRestore}>بازگردانی</button>}</div></CardHeader><CardContent><div className="flex flex-wrap items-center gap-2">{prompt.models.map(model => <span key={model.id} className="prompt-action inline-flex items-center gap-1 border-2 border-border px-2 py-0.5 text-xs font-bold">{model.name}{onRemoveModel && <button type="button" onClick={() => onRemoveModel(model.id)}>×</button>}</span>)}{onAddModel && available.length > 0 && <select className="prompt-action border-2 border-border bg-card p-1 text-xs" defaultValue="" onChange={e => { if (e.target.value) { onAddModel(Number(e.target.value)); e.target.value = '' } }}><option value="" disabled>+ مدل</option>{available.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select>}</div>{!prompt.is_active && <p className="mt-3 text-xs font-bold text-muted-text">حذف خودکار تا {daysUntilArchiveRemoval(prompt.updated_at)} روز دیگر</p>}</CardContent></Card>
 }

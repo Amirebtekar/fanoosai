@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import selectinload
@@ -7,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.database.connection import async_session_maker
 from app.database.models import Prompt, PromptModel
 from app.infrastructure.redis_client import get_redis
-from app.infrastructure.run_queue import PromptRunQueue
+from app.infrastructure.run_queue import PromptRunJob, PromptRunQueue
 from app.observability import QUEUE_JOBS
 from app.repositories.ai_run_repository import AIRunRepository
 from app.services.ai_run_service import AIRunService
@@ -22,6 +23,16 @@ logger = logging.getLogger(__name__)
 
 async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
     async with async_session_maker() as session:
+        ai_service = AIService()
+        service = AIRunService(
+            AIRunRepository(session), ai_service, BrandExtractionService(ai_service),
+            BrandPersistenceService(session), queue,
+        )
+        if job.source == "extraction_retry":
+            if job.ai_run_id is not None:
+                await service.retry_extraction(job.ai_run_id, job.run_attempt)
+            await queue.ack(entry_id)
+            return
         prompt = (await session.execute(
             select(Prompt)
             .options(selectinload(Prompt.models).selectinload(PromptModel.model))
@@ -30,15 +41,10 @@ async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
         if prompt is None:
             await queue.ack(entry_id)
             return
-        ai_service = AIService()
-        service = AIRunService(
-            AIRunRepository(session), ai_service, BrandExtractionService(ai_service),
-            BrandPersistenceService(session),
-        )
         run_at = datetime.combine(
             date.fromisoformat(job.run_date), time.min, tzinfo=ZoneInfo(settings.RUN_TIMEZONE)
         )
-        await service.run_prompt_model(prompt, job.ai_model_id, now=run_at, source="scheduled")
+        await service.run_prompt_model(prompt, job.ai_model_id, now=run_at, source=job.source, run_attempt=job.run_attempt)
         await queue.ack(entry_id)
 
 
@@ -47,13 +53,18 @@ async def main() -> None:
     await queue.ensure_group()
     try:
         while True:
+            await queue.enqueue_due_retries()
             for entry_id, job in await queue.read():
                 try:
                     await process_job(queue, entry_id, job)
                     QUEUE_JOBS.labels("success").inc()
                 except Exception:
                     if job.attempts < settings.REDIS_JOB_MAX_RETRIES:
-                        await queue.enqueue_retry(job.__class__(job.prompt_id, job.ai_model_id, job.run_date, job.attempts + 1))
+                        retry_job = replace(job, attempts=job.attempts + 1)
+                        if job.source == "scheduled":
+                            await queue.enqueue_after_claim_lease(retry_job)
+                        else:
+                            await queue.enqueue_retry(retry_job)
                         QUEUE_JOBS.labels("retry").inc()
                     else:
                         QUEUE_JOBS.labels("failed").inc()

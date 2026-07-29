@@ -58,3 +58,18 @@ async def test_owned_brand_is_created_with_project():
     await service.create_project(user_id=1, name="Project", website_url="site.com", brand_name="Fanoos")
 
     assert repository.project_data["brand_name"] == "Fanoos"
+
+
+@pytest.mark.asyncio
+async def test_project_domain_update_rejects_another_projects_domain():
+    existing = type("Project", (), {"id": 2})()
+
+    class Repository:
+        async def get_by_website_url(self, website_url):
+            return existing
+
+    service = ProjectService(Repository(), VerifiedUserRepository())
+    project = type("Project", (), {"id": 1})()
+
+    with pytest.raises(ValueError, match="website domain already exists"):
+        await service.update_project(project, website_url="https://www.site.com/path")

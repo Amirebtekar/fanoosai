@@ -4,12 +4,12 @@ from typing import List
 from datetime import datetime, timezone
 
 from app.dependencies import get_session
-from app.database.models import UserTable, Project, ProjectBrand, Alert, AlertRule
+from app.database.models import UserTable, Project, ProjectBrand, Alert, AlertRule, AIRun, Brand, Prompt, RunBrand
 from sqlalchemy import select
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.user_repository import UserRepository
 from app.services.project_service import ProjectService
-from app.projects.schema import ProjectCreate, ProjectUpdate, ProjectRead, ProjectBrandCreate, ProjectBrandRead
+from app.projects.schema import ProjectCreate, ProjectUpdate, ProjectRead, ProjectBrandCreate, ProjectBrandRead, ObservedBrandRead
 from app.auth.fastapi_users import fastapi_users
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -104,15 +104,22 @@ async def update_project(
     try:
         if not await service.project_repo.can_manage_project(project_id, current_user.id): raise HTTPException(403, "Project manager role required")
         project = await service.get_project(project_id=project_id, user_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    try:
         updated_project = await service.update_project(
             project=project,
             name=project_data.name,
             description=project_data.description,
+            website_url=project_data.website_url,
         )
         return ProjectRead.model_validate(_project_to_dict(updated_project))
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
 
@@ -136,6 +143,20 @@ async def delete_project(
 async def list_project_brands(project_id: int, session: AsyncSession = Depends(get_session), current_user: UserTable = Depends(get_current_user)):
     if not await ProjectRepository(session).can_read(project_id, current_user.id): raise HTTPException(404, "Project not found")
     return (await session.execute(select(ProjectBrand).where(ProjectBrand.project_id == project_id).order_by(ProjectBrand.kind, ProjectBrand.name))).scalars().all()
+
+@router.get("/{project_id}/observed-brands", response_model=list[ObservedBrandRead])
+async def list_observed_brands(project_id: int, session: AsyncSession = Depends(get_session), current_user: UserTable = Depends(get_current_user)):
+    if not await ProjectRepository(session).can_read(project_id, current_user.id): raise HTTPException(404, "Project not found")
+    rows = await session.execute(
+        select(Brand.id, Brand.name, Brand.domain)
+        .join(RunBrand, RunBrand.brand_id == Brand.id)
+        .join(AIRun, AIRun.id == RunBrand.ai_run_id)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .where(Prompt.project_id == project_id)
+        .distinct()
+        .order_by(Brand.name)
+    )
+    return [ObservedBrandRead(brand_id=brand_id, name=name, domain=domain) for brand_id, name, domain in rows.all()]
 
 @router.post("/{project_id}/brands", response_model=ProjectBrandRead, status_code=201)
 async def add_project_brand(project_id: int, data: ProjectBrandCreate, session: AsyncSession = Depends(get_session), current_user: UserTable = Depends(get_current_user)):

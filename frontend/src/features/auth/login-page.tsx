@@ -10,7 +10,6 @@ const PHONE_REGEX = /^09[0-9]{9}$/
 export function LoginPage() {
   const navigate = useNavigate()
   const { setUser } = useAuthStore()
-  const setToken = (_token: string) => undefined
   const [step, setStep] = useState<'phone' | 'otp'>('phone')
   const [phone, setPhone] = useState('')
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
@@ -41,7 +40,7 @@ export function LoginPage() {
   const handleVerifyOtp = async () => {
     clearAlerts(); const code = otp.join(''); if (code.length !== 6) return
     setLoading(true)
-    try { const res = await verifySms({ phone, code }); if (res.access_token) setToken(res.access_token); if (res.user) setUser(res.user); setSuccess('ورود با موفقیت انجام شد!'); setTimeout(() => navigate({ to: '/dashboard' }), 1200) }
+    try { const res = await verifySms({ phone, code }); if (res.user) setUser(res.user); setSuccess('ورود با موفقیت انجام شد!'); setTimeout(() => navigate({ to: '/dashboard' }), 1200) }
     catch (e) { setError(getErrorMessage(e, 'کد وارد شده صحیح نیست')) }
     finally { setLoading(false) }
   }

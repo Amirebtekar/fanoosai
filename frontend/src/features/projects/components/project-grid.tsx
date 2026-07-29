@@ -43,13 +43,12 @@ export function ProjectGrid() {
   const [newProject, setNewProject] = useState<ProjectCreate>({ name: '', description: '', website_url: '', brand_name: '' })
 
   const fetchProjects = useCallback(async () => {
-    setLoading(true)
     try { setProjects(await listProjects()) }
     catch { setProjects([]); toast.error('دریافت پروژه‌ها ممکن نشد.') }
     finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { fetchProjects() }, [fetchProjects])
+  useEffect(() => { void Promise.resolve().then(fetchProjects) }, [fetchProjects])
 
   const handleCreate = async () => {
     if (!newProject.name.trim() || !newProject.website_url.trim() || !newProject.brand_name.trim()) return
@@ -78,10 +77,14 @@ export function ProjectGrid() {
   }
 
   const handleSaveSettings = async () => {
-    if (!settingsProject?.name.trim()) return
+    if (!settingsProject?.name.trim() || !settingsProject.website_url?.trim()) return
     setSavingSettings(true)
     try {
-      const updated = await updateProject(settingsProject.id, { name: settingsProject.name.trim(), description: settingsProject.description?.trim() || null })
+      const updated = await updateProject(settingsProject.id, {
+        name: settingsProject.name.trim(),
+        description: settingsProject.description?.trim() || null,
+        website_url: settingsProject.website_url.trim(),
+      })
       setProjects(projects => projects.map(project => project.id === updated.id ? { ...updated, prompt_count: project.prompt_count, model_count: project.model_count } : project))
       setSettingsProject(null)
       toast.success('تنظیمات ذخیره شد')
@@ -274,10 +277,11 @@ export function ProjectGrid() {
           {settingsProject && <div className="space-y-4">
             <div className="space-y-2"><label className="text-sm font-bold" htmlFor="settings-project-name">نام پروژه</label><Input id="settings-project-name" value={settingsProject.name} onChange={event => setSettingsProject({ ...settingsProject, name: event.target.value })} className="border-border font-medium" /></div>
             <div className="space-y-2"><label className="text-sm font-bold" htmlFor="settings-project-description">توضیحات پروژه</label><textarea id="settings-project-description" value={settingsProject.description || ''} onChange={event => setSettingsProject({ ...settingsProject, description: event.target.value })} rows={3} className="w-full rounded-none border-3 border-border p-3 font-medium outline-none resize-y font-vazirmatn" /></div>
+            <div className="space-y-2"><label className="text-sm font-bold" htmlFor="settings-project-website">دامنه پروژه</label><Input id="settings-project-website" value={settingsProject.website_url || ''} onChange={event => setSettingsProject({ ...settingsProject, website_url: event.target.value })} className="border-border font-medium" /></div>
           </div>}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setSettingsProject(null)} className="border-border font-bold">انصراف</Button>
-            <Button disabled={!settingsProject?.name.trim() || savingSettings} onClick={handleSaveSettings} className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50">{savingSettings ? 'در حال ذخیره...' : 'ذخیره تنظیمات'}</Button>
+            <Button disabled={!settingsProject?.name.trim() || !settingsProject.website_url?.trim() || savingSettings} onClick={handleSaveSettings} className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50">{savingSettings ? 'در حال ذخیره...' : 'ذخیره تنظیمات'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

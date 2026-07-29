@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 
 from app.database.models import AIRun, DailyPromptRun, Prompt, Alert, AlertRule, ProjectBrand, RunBrand
+from app.core.config import settings
 
 
 class AIRunRepository:
@@ -20,6 +21,7 @@ class AIRunRepository:
         response_text: str | None = None,
         status: str = "failed",
         error_message: str | None = None,
+        provider_used: str | None = None,
     ) -> AIRun:
         now = datetime.now(timezone.utc)
         run = AIRun(
@@ -28,6 +30,7 @@ class AIRunRepository:
             request_text=request_text,
             response_text=response_text,
             status=status,
+            provider_used=provider_used,
             extraction_status="pending" if status == "success" else "failed",
             error_message=error_message,
             completed_at=now if status != "running" else None,
@@ -49,7 +52,24 @@ class AIRunRepository:
     async def claim_daily_run(
         self, prompt_id: int, ai_model_id: int, run_date: date, source: str
     ) -> bool:
-        """Atomically claim one prompt/model execution for a calendar day."""
+        """Claim a daily execution, recovering claims abandoned before a run was saved."""
+        now = datetime.now(timezone.utc)
+        stale_before = now - timedelta(seconds=settings.RUN_CLAIM_LEASE_SECONDS)
+        reclaimed = await self.session.execute(
+            update(DailyPromptRun)
+            .where(
+                DailyPromptRun.prompt_id == prompt_id,
+                DailyPromptRun.ai_model_id == ai_model_id,
+                DailyPromptRun.run_date == run_date,
+                DailyPromptRun.status == "claimed",
+                DailyPromptRun.claimed_at < stale_before,
+            )
+            .values(source=source, claimed_at=now)
+        )
+        if reclaimed.rowcount:
+            await self.session.commit()
+            return True
+
         existing = await self.session.scalar(
             select(DailyPromptRun.id).where(
                 DailyPromptRun.prompt_id == prompt_id,
@@ -65,7 +85,8 @@ class AIRunRepository:
             ai_model_id=ai_model_id,
             run_date=run_date,
             source=source,
-            claimed_at=datetime.now(timezone.utc),
+            status="claimed",
+            claimed_at=now,
         ))
         try:
             await self.session.commit()
@@ -73,6 +94,20 @@ class AIRunRepository:
             await self.session.rollback()
             return False
         return True
+
+    async def complete_daily_run(
+        self, prompt_id: int, ai_model_id: int, run_date: date
+    ) -> None:
+        await self.session.execute(
+            update(DailyPromptRun)
+            .where(
+                DailyPromptRun.prompt_id == prompt_id,
+                DailyPromptRun.ai_model_id == ai_model_id,
+                DailyPromptRun.run_date == run_date,
+            )
+            .values(status="completed")
+        )
+        await self.session.commit()
 
     async def get_daily_claim_sources(
         self, prompt_id: int, ai_model_ids: list[int], run_date: date
@@ -97,6 +132,9 @@ class AIRunRepository:
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get(self, run_id: int) -> AIRun | None:
+        return await self.session.get(AIRun, run_id)
 
     async def alert_run_failure(self, prompt_id: int, message: str) -> None:
         project_id = await self.session.scalar(select(Prompt.project_id).where(Prompt.id == prompt_id))

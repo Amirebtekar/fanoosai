@@ -13,6 +13,9 @@ class PromptRunJob:
     ai_model_id: int
     run_date: str
     attempts: int = 0
+    source: str = "scheduled"
+    run_attempt: int = 1
+    ai_run_id: int | None = None
 
 
 class PromptRunQueue:
@@ -45,6 +48,38 @@ class PromptRunQueue:
     async def enqueue_retry(self, job: PromptRunJob) -> None:
         await self.redis.xadd(self.stream, {"payload": json.dumps(asdict(job), separators=(",", ":"))})
 
+    async def enqueue_retry_in_one_hour(self, job: PromptRunJob) -> None:
+        await self.redis.zadd(
+            f"{self.stream}:delayed",
+            {json.dumps(asdict(job), separators=(",", ":")): __import__("time").time() + 3600},
+        )
+
+    async def enqueue_extraction_retry_in_five_minutes(self, job: PromptRunJob) -> None:
+        await self.redis.zadd(
+            f"{self.stream}:delayed",
+            {json.dumps(asdict(job), separators=(",", ":")): __import__("time").time() + 300},
+            nx=True,
+        )
+
+    async def enqueue_after_claim_lease(self, job: PromptRunJob) -> None:
+        await self.redis.zadd(
+            f"{self.stream}:delayed",
+            {json.dumps(asdict(job), separators=(",", ":")): __import__("time").time() + settings.RUN_CLAIM_LEASE_SECONDS},
+        )
+
+    async def enqueue_due_retries(self) -> int:
+        return await self.redis.eval(
+            """
+            local jobs = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 100)
+            for _, job in ipairs(jobs) do
+                redis.call('ZREM', KEYS[1], job)
+                redis.call('XADD', KEYS[2], '*', 'payload', job)
+            end
+            return #jobs
+            """,
+            2, f"{self.stream}:delayed", self.stream, __import__("time").time(),
+        )
+
     async def acquire_scheduler_lock(self) -> str | None:
         token = uuid.uuid4().hex
         acquired = await self.redis.set(
@@ -66,7 +101,8 @@ class PromptRunQueue:
     async def read(self, block_seconds: int = 5) -> list[tuple[str, PromptRunJob]]:
         await self.ensure_group()
         reclaimed = await self.redis.xautoclaim(
-            self.stream, self.group, self.consumer, min_idle_time=60000, start_id="0", count=1
+            self.stream, self.group, self.consumer,
+            min_idle_time=settings.RUN_CLAIM_LEASE_SECONDS * 1000, start_id="0", count=1,
         )
         if len(reclaimed) >= 2 and reclaimed[1]:
             return [

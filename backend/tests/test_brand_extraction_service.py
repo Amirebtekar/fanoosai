@@ -1,5 +1,6 @@
 import pytest
 
+from app.core.config import settings
 from app.services.brand_extraction_service import (
     BrandExtractionService,
     BrandExtractionValidationError,
@@ -7,7 +8,7 @@ from app.services.brand_extraction_service import (
 
 class FakeGateway:
     async def run_prompt(self, model_key: str, prompt_text: str, response_format=None) -> str:
-        assert model_key == "extractor-model"
+        assert model_key == settings.BRAND_EXTRACTION_MODEL
         assert "Original AI response" in prompt_text
         assert response_format["json_schema"]["name"] == "brand_extraction"
         return '{"brands":[{"rank":1,"name":"Parspack","domain":"parspack.com","confidence":0.99}]}'

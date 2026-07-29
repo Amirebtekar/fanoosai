@@ -1,7 +1,7 @@
 import pytest
 
 from app.services.brand_extraction_service import ExtractedBrand, ExtractionResult
-from app.services.brand_persistence_service import BrandPersistenceService
+from app.services.brand_persistence_service import BrandPersistenceService, normalize_brand_name
 
 
 class FakeResult:
@@ -21,9 +21,8 @@ class FakeSession:
         self.rolled_back = False
 
     async def execute(self, statement):
-        params = statement.compile().params
-        value = params.get("domain") or params.get("name")
-        return FakeResult(next((b for b in self.brands if (b.domain or b.name) == value), None))
+        values = set(statement.compile().params.values())
+        return FakeResult(next((b for b in self.brands if b.domain in values or normalize_brand_name(b.name) in values), None))
 
     def add(self, entity):
         self.added.append(entity)
@@ -51,10 +50,41 @@ async def test_persists_existing_or_new_brands_and_run_links():
         ExtractedBrand(2, "Example", None, 0.8),
     ]))
 
-    assert result.new_brands == 2
+    assert result.new_brands == 1
     assert result.existing_brands == 0
-    assert result.run_brands == 2
+    assert result.run_brands == 1
+    assert [brand.domain for brand in result.brands] == ["parspack.com"]
     assert session.committed
+
+
+@pytest.mark.asyncio
+async def test_reuses_a_brand_by_domain_when_its_name_changes():
+    session = FakeSession()
+    service = BrandPersistenceService(session)
+    first = await service.persist(7, ExtractionResult([
+        ExtractedBrand(1, "ابر آروان", "arvancloud.ir", 0.99),
+    ]))
+    second = await service.persist(8, ExtractionResult([
+        ExtractedBrand(1, "آروان‌کلاد", "arvancloud.ir", 0.99),
+    ]))
+
+    assert second.new_brands == 0
+    assert second.brands[0].id == first.brands[0].id
+
+
+@pytest.mark.asyncio
+async def test_reuses_a_brand_when_the_extracted_domain_is_misspelled():
+    session = FakeSession()
+    service = BrandPersistenceService(session)
+    first = await service.persist(7, ExtractionResult([
+        ExtractedBrand(2, "پارس‌پک", "parspack.com", 0.99),
+    ]))
+    second = await service.persist(8, ExtractionResult([
+        ExtractedBrand(2, "پارس پک", "parspak.com", 0.99),
+    ]))
+
+    assert second.new_brands == 0
+    assert second.brands[0].id == first.brands[0].id
 
 
 @pytest.mark.asyncio
@@ -65,5 +95,7 @@ async def test_rolls_back_when_persistence_fails():
 
     session = FailingSession()
     with pytest.raises(RuntimeError):
-        await BrandPersistenceService(session).persist(7, ExtractionResult([]))
+        await BrandPersistenceService(session).persist(7, ExtractionResult([
+            ExtractedBrand(1, "Parspack", "parspack.com", 0.99),
+        ]))
     assert session.rolled_back

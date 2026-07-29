@@ -1,6 +1,6 @@
 """Add extraction fields to ai_runs.
 
-Revision ID: 20250308_add_ai_run_extraction_fields
+Revision ID: 20250308_airun_extract
 Revises: None
 """
 
@@ -8,7 +8,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20250308_add_ai_run_extraction_fields"
+revision = "20250308_airun_extract"
 down_revision = None
 branch_labels = None
 depends_on = None

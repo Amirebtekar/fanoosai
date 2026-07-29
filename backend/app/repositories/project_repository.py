@@ -37,11 +37,24 @@ class ProjectRepository:
         result = await self.session.execute(stmt)
         return [(project, prompt_count, model_count) for project, prompt_count, model_count in result.all()]
 
-    async def update(self, project: Project, name: str | None = None, description: str | None = None) -> Project:
+    async def update(
+        self, project: Project, name: str | None = None,
+        description: str | None = None, website_url: str | None = None,
+    ) -> Project:
         if name is not None:
             project.name = name
         if description is not None:
             project.description = description
+        if website_url is not None:
+            project.website_url = website_url
+            owned_brand = await self.session.scalar(
+                select(ProjectBrand).where(
+                    ProjectBrand.project_id == project.id,
+                    ProjectBrand.kind == "owned",
+                )
+            )
+            if owned_brand is not None:
+                owned_brand.domain = website_url
         await self.session.commit()
         await self.session.refresh(project)
         return project

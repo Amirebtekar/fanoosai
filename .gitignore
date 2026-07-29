@@ -17,11 +17,9 @@ __pycache__/
 # Logs
 *.log
 
-# Migrations
-migrations/
-
 # Local
 .DS_Store
+fanoosai-server.zip
 
 # Hermes
 .hermes/

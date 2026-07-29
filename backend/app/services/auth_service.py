@@ -55,59 +55,50 @@ class OTPStore:
             self._local[self._key("otp", phone)] = (code, time.monotonic() + settings.OTP_TTL)
             self._local_attempts.pop(self._key("attempts", phone), None)
 
-    async def check(self, phone: str, code: str) -> bool:
-        redis = None
+    async def verify(self, phone: str, code: str) -> int:
+        """Return -1 for success, 0 for missing/expired, or failed-attempt count."""
         try:
-            redis = get_redis()
-            stored = await redis.get(self._key("otp", phone))
+            return int(await get_redis().eval(
+                """
+                local stored = redis.call('GET', KEYS[1])
+                if not stored then return 0 end
+                if stored == ARGV[1] then
+                    redis.call('DEL', KEYS[1], KEYS[2])
+                    return -1
+                end
+                local attempts = redis.call('INCR', KEYS[2])
+                if attempts == 1 then redis.call('EXPIRE', KEYS[2], ARGV[2]) end
+                if attempts >= tonumber(ARGV[3]) then
+                    redis.call('DEL', KEYS[1], KEYS[2])
+                end
+                return attempts
+                """,
+                2,
+                self._key("otp", phone),
+                self._key("attempts", phone),
+                code,
+                settings.OTP_TTL,
+                settings.OTP_MAX_ATTEMPTS,
+            ))
         except RedisError:
             if not self._use_local():
                 raise
             value = self._local.get(self._key("otp", phone))
             stored = value[0] if value and value[1] > time.monotonic() else None
         if not stored:
-            return False
-        if not secrets.compare_digest(stored, code):
-            attempts_key = self._key("attempts", phone)
-            try:
-                if redis is None:
-                    raise RedisError("Redis unavailable")
-                attempts = await redis.incr(attempts_key)
-                if attempts == 1:
-                    await redis.expire(attempts_key, settings.OTP_TTL)
-            except RedisError:
-                if not self._use_local():
-                    raise
-                attempts = self._local_attempts.get(attempts_key, 0) + 1
-                self._local_attempts[attempts_key] = attempts
-            return False
-        try:
-            if redis is None:
-                raise RedisError("Redis unavailable")
-            await redis.delete(self._key("otp", phone), self._key("attempts", phone))
-        except RedisError:
-            if not self._use_local():
-                raise
+            return 0
+        attempts_key = self._key("attempts", phone)
+        if secrets.compare_digest(stored, code):
             self._local.pop(self._key("otp", phone), None)
-            self._local_attempts.pop(self._key("attempts", phone), None)
-        return True
-
-    async def get_attempts(self, phone: str) -> int:
-        try:
-            return int(await get_redis().get(self._key("attempts", phone)) or 0)
-        except RedisError:
-            if not self._use_local():
-                raise
-            return self._local_attempts.get(self._key("attempts", phone), 0)
-
-    async def clear(self, phone: str) -> None:
-        try:
-            await get_redis().delete(self._key("otp", phone), self._key("attempts", phone))
-        except RedisError:
-            if not self._use_local():
-                raise
-        self._local.pop(self._key("otp", phone), None)
-        self._local_attempts.pop(self._key("attempts", phone), None)
+            self._local_attempts.pop(attempts_key, None)
+            return -1
+        attempts = self._local_attempts.get(attempts_key, 0) + 1
+        if attempts >= settings.OTP_MAX_ATTEMPTS:
+            self._local.pop(self._key("otp", phone), None)
+            self._local_attempts.pop(attempts_key, None)
+        else:
+            self._local_attempts[attempts_key] = attempts
+        return attempts
 
 
 otp_store = OTPStore()
@@ -132,7 +123,7 @@ class AuthService:
 
     async def register_sms(self, phone: str, first_name: str, last_name: str, email: str | None) -> None:
         if not self._is_dev_otp(phone):
-            await otp_store.check_send_rate(phone)
+            await self.otp_store.check_send_rate(phone)
 
         user = await self.user_repo.get_by_phone(phone)
         if not user:
@@ -150,14 +141,14 @@ class AuthService:
             return
 
         code = f"{secrets.randbelow(900000) + 100000}"
-        await otp_store.store(phone, code)
+        await self.otp_store.store(phone, code)
         sent = await sms_client.send_otp(phone, code)
         if not sent:
             raise HTTPException(503, "SMS service is temporarily unavailable")
 
     async def request_sms(self, phone: str) -> None:
         if not self._is_dev_otp(phone):
-            await otp_store.check_send_rate(phone)
+            await self.otp_store.check_send_rate(phone)
 
         user = await self.user_repo.get_by_phone(phone)
         if not user:
@@ -168,22 +159,17 @@ class AuthService:
             return
 
         code = f"{secrets.randbelow(900000) + 100000}"
-        await otp_store.store(phone, code)
+        await self.otp_store.store(phone, code)
         sent = await sms_client.send_otp(phone, code)
         if not sent:
             raise HTTPException(503, "SMS service is temporarily unavailable")
 
     async def verify_sms(self, phone: str, code: str) -> str:
-        attempts = await otp_store.get_attempts(phone)
+        attempts = await self.otp_store.verify(phone, code)
         if attempts >= settings.OTP_MAX_ATTEMPTS:
-            await otp_store.clear(phone)
             raise HTTPException(429, "Too many attempts; request a new code")
-
-        if not await otp_store.check(phone, code):
-            remaining = settings.OTP_MAX_ATTEMPTS - attempts - 1
-            if remaining <= 0:
-                await otp_store.clear(phone)
-                raise HTTPException(429, "Too many attempts; request a new code")
+        if attempts != -1:
+            remaining = settings.OTP_MAX_ATTEMPTS - attempts
             raise HTTPException(400, f"Invalid code. {remaining} attempts remaining")
 
         user = await self.user_repo.get_by_phone(phone)

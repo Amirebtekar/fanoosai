@@ -1,7 +1,9 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 class AIRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     prompt_id: int
     ai_model_id: int
@@ -13,9 +15,6 @@ class AIRunRead(BaseModel):
     error_message: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
-
-    class Config:
-        from_attributes = True
 
 class AIRunResult(BaseModel):
     ai_run_id: int

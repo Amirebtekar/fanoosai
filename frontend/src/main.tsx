@@ -19,10 +19,7 @@ import './styles/index.css'
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: (failureCount) => {
-        if (failureCount > 3) return false
-        return false
-      },
+      retry: false,
       refetchOnWindowFocus: import.meta.env.PROD,
       staleTime: 10 * 1000,
     },

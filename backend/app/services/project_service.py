@@ -39,8 +39,18 @@ class ProjectService:
             raise ValueError("Project not found or access denied")
         return project
 
-    async def update_project(self, project: Project, name: Optional[str] = None, description: Optional[str] = None) -> Project:
-        return await self.project_repo.update(project=project, name=name, description=description)
+    async def update_project(
+        self, project: Project, name: Optional[str] = None,
+        description: Optional[str] = None, website_url: Optional[str] = None,
+    ) -> Project:
+        if website_url is not None:
+            website_url = normalize_website_url(website_url)
+            duplicate = await self.project_repo.get_by_website_url(website_url)
+            if duplicate is not None and duplicate.id != project.id:
+                raise ValueError("A project with this website domain already exists")
+        return await self.project_repo.update(
+            project=project, name=name, description=description, website_url=website_url,
+        )
 
     async def delete_project(self, project: Project) -> None:
         await self.project_repo.delete(project=project)

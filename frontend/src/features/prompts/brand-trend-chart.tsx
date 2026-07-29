@@ -38,6 +38,7 @@ export function BrandTrendChart({ items }: { items: BrandTrend[] }) {
       rows.set(point.date, row)
     }
   }
+  const chartRows = [...rows.values()].sort((a, b) => new Date(String(a.date)).getTime() - new Date(String(b.date)).getTime())
 
   const maxRank = Math.max(...visibleItems.flatMap((item) => item.points.map((point) => point.rank)), 1)
   const formatDate = (value: string) => new Intl.DateTimeFormat('fa-IR', { month: 'short', day: 'numeric' }).format(new Date(value))
@@ -58,7 +59,7 @@ export function BrandTrendChart({ items }: { items: BrandTrend[] }) {
       <CardContent className='space-y-6 pt-6'>
         <div className='h-[330px] w-full min-w-0' role='img' aria-label='نمودار روند رتبه برندها در طول زمان' dir='ltr'>
           <ResponsiveContainer width='100%' height='100%'>
-            <LineChart data={[...rows.values()]} margin={{ top: 8, right: 12, left: -12, bottom: 8 }}>
+            <LineChart data={chartRows} margin={{ top: 8, right: 12, left: -12, bottom: 8 }}>
               <CartesianGrid stroke='var(--border)' strokeDasharray='3 5' opacity={0.55} />
               <XAxis dataKey='date' tickFormatter={formatDate} tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} axisLine={{ stroke: 'var(--border)' }} tickLine={false} minTickGap={28} />
               <YAxis reversed domain={[1, maxRank]} allowDecimals={false} tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} axisLine={false} tickLine={false} width={34} />
@@ -70,7 +71,7 @@ export function BrandTrendChart({ items }: { items: BrandTrend[] }) {
                 formatter={(value, name) => [`رتبه ${value}`, name]}
               />
               {series.map((item) => (
-                <Line key={item.key} type='monotone' dataKey={item.key} name={item.brand} stroke={item.color} strokeWidth={2.5} dot={{ r: 3, strokeWidth: 1.5, fill: item.color }} activeDot={{ r: 6, strokeWidth: 2 }} connectNulls />
+                <Line key={item.key} type='monotone' dataKey={item.key} name={item.brand} stroke={item.color} strokeWidth={2.5} dot={{ r: 5, strokeWidth: 2, fill: 'var(--card)' }} activeDot={{ r: 6, strokeWidth: 2, fill: 'var(--card)' }} connectNulls />
               ))}
             </LineChart>
           </ResponsiveContainer>

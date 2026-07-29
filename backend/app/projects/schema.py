@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import field_validator
 from typing import List, Optional
 from datetime import datetime
@@ -44,8 +44,16 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = Field(
         None, max_length=1000, description="Project description (optional)"
     )
+    website_url: Optional[str] = Field(None, max_length=500, description="Project website domain")
+
+    @field_validator("website_url")
+    @classmethod
+    def normalize_website_domain(cls, value: str | None) -> str | None:
+        return normalize_website_url(value) if value is not None else None
 
 class ProjectRead(ProjectBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     organization_id: int
     website_url: Optional[str] = None
@@ -54,9 +62,6 @@ class ProjectRead(ProjectBase):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
-
 class ProjectBrandCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     domain: Optional[str] = Field(None, max_length=500)
@@ -65,6 +70,11 @@ class ProjectBrandCreate(BaseModel):
 class ProjectBrandRead(ProjectBrandCreate):
     id: int
     brand_id: Optional[int] = None
+
+class ObservedBrandRead(BaseModel):
+    brand_id: int
+    name: str
+    domain: str
 
 # --- Prompt Schemas ---
 
@@ -76,6 +86,8 @@ class PromptCreate(PromptBase):
 
 
 class PromptRead(PromptBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     project_id: int
     is_active: bool
@@ -83,6 +95,3 @@ class PromptRead(PromptBase):
     updated_at: datetime
     last_run_at: datetime | None = None
     models: List[AIModelRead] = Field(default_factory=list)
-    
-    class Config:
-        from_attributes = True

@@ -1,5 +1,7 @@
 from app.projects.schema import ProjectUpdate
 
 
-def test_project_update_does_not_allow_website_url():
-    assert "website_url" not in ProjectUpdate.model_fields
+def test_project_update_allows_normalized_website_url():
+    update = ProjectUpdate(website_url="https://www.Example.com/path")
+
+    assert update.website_url == "example.com"
