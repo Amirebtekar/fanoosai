@@ -1,4 +1,6 @@
+import json
 from datetime import datetime
+from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -213,6 +215,68 @@ async def prompt_history(prompt_id: int, ai_model_id: int | None = None, start_d
     total = await session.scalar(count_stmt) or 0
     items = [PromptHistoryItem(ai_run_id=i, ai_model=m, run_date=d, request_text=t, response_text=r, status=s, extraction_status=e, brands_count=c) for i,m,d,t,r,s,e,c in rows]
     return Page(items=items, page=page, page_size=page_size, total=total)
+
+@router.get("/projects/{project_id}/references", response_model=ProjectReferencesPage)
+async def project_references(
+    project_id: int,
+    prompt_id: int | None = Query(None, gt=0),
+    ai_model_id: int | None = Query(None, gt=0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    await owned_project(project_id, session, user)
+    stmt = (
+        select(Prompt.id, Prompt.text, AIModel.id, AIModel.name, AIRun.created_at, AIRun.response_text)
+        .select_from(AIRun)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(AIModel, AIModel.id == AIRun.ai_model_id)
+        .where(Prompt.project_id == project_id, AIRun.status == "success", AIRun.response_text.is_not(None))
+        .order_by(AIRun.created_at.desc(), AIRun.id.desc())
+    )
+    if prompt_id is not None:
+        stmt = stmt.where(AIRun.prompt_id == prompt_id)
+    if ai_model_id is not None:
+        stmt = stmt.where(AIRun.ai_model_id == ai_model_id)
+
+    # ponytail: sources live in response JSON; normalize into a table if this scan becomes slow.
+    items = []
+    seen = set()
+    for prompt_id_value, prompt_text, model_id, model_name, run_date, response_text in (await session.execute(stmt)).all():
+        try:
+            sources = json.loads(response_text).get("sources", [])
+        except (AttributeError, TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(sources, list):
+            continue
+        for url in sources:
+            if not isinstance(url, str):
+                continue
+            try:
+                parsed = urlsplit(url)
+            except ValueError:
+                continue
+            key = (url, prompt_id_value, model_id)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc or key in seen:
+                continue
+            seen.add(key)
+            items.append(ProjectReferenceItem(
+                url=url,
+                prompt_id=prompt_id_value,
+                prompt=prompt_text,
+                ai_model_id=model_id,
+                ai_model=model_name,
+                run_date=run_date,
+            ))
+
+    start = (page - 1) * page_size
+    return ProjectReferencesPage(
+        items=items[start:start + page_size],
+        page=page,
+        page_size=page_size,
+        total=len(items),
+    )
 
 @router.get("/projects/{project_id}/history", response_model=ProjectHistory)
 async def project_history(project_id: int, prompt_id: int | None = None, ai_model_id: int | None = None,

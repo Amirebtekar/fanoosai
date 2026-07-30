@@ -91,7 +91,7 @@ export function archivePrompt(projectId: number, promptId: number): Promise<void
 export function restorePrompt(projectId: number, promptId: number): Promise<PromptRead> { return authRequest('POST', '/projects/' + projectId + '/prompts/' + promptId + '/restore') }
 export function addPromptModel(projectId: number, promptId: number, modelId: number): Promise<void> { return authRequest('POST', '/projects/' + projectId + '/prompts/' + promptId + '/models/' + modelId) }
 export function removePromptModel(projectId: number, promptId: number, modelId: number): Promise<void> { return authRequest('DELETE', '/projects/' + projectId + '/prompts/' + promptId + '/models/' + modelId) }
-export function runPrompt(projectId: number, promptId: number): Promise<AIRunResult[]> { return authRequest('POST', '/projects/' + projectId + '/prompts/' + promptId + '/run') }
+export function runPrompt(projectId: number, promptId: number, modelId?: number): Promise<AIRunResult[]> { const qs = modelId ? `?ai_model_id=${modelId}` : ''; return authRequest('POST', '/projects/' + projectId + '/prompts/' + promptId + '/run' + qs) }
 export function getExecutionAvailability(projectId: number, promptId: number): Promise<PromptModelExecutionAvailability[]> { return authRequest('GET', '/projects/' + projectId + '/prompts/' + promptId + '/execution-availability') }
 export function getProjectRuns(projectId: number, page = 1): Promise<Page<ProjectRun>> { return authRequest('GET', '/projects/' + projectId + '/runs?page=' + page) }
 export function listProjectBrands(projectId: number): Promise<ProjectBrand[]> { return authRequest('GET', '/projects/' + projectId + '/brands') }
@@ -150,6 +150,22 @@ export function getPromptHistory(promptId: number, params?: { ai_model_id?: numb
   if (params?.end_date) query.set('end_date', params.end_date)
   const suffix = query.toString() ? '?' + query.toString() : ''
   return authRequest('GET', '/prompts/' + promptId + '/history' + suffix)
+}
+
+export interface ProjectReference {
+  url: string
+  prompt_id: number
+  prompt: string
+  ai_model_id: number
+  ai_model: string
+  run_date: string
+}
+
+export function getProjectReferences(projectId: number, params: { prompt_id?: number; ai_model_id?: number; page?: number; page_size?: number } = {}): Promise<Page<ProjectReference>> {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) })
+  const suffix = query.toString() ? '?' + query.toString() : ''
+  return authRequest('GET', '/projects/' + projectId + '/references' + suffix)
 }
 
 export function listAIModels(): Promise<AIModelRead[]> { return authRequest('GET', '/ai-models') }

@@ -49,6 +49,20 @@ class PromptHistoryItem(BaseModel):
     extraction_status: str
     brands_count: int
 
+class ProjectReferenceItem(BaseModel):
+    url: str
+    prompt_id: int
+    prompt: str
+    ai_model_id: int
+    ai_model: str
+    run_date: datetime
+
+class ProjectReferencesPage(BaseModel):
+    items: list[ProjectReferenceItem]
+    page: int
+    page_size: int
+    total: int
+
 class ProjectHistory(BaseModel):
     total_runs: int
     successful_runs: int

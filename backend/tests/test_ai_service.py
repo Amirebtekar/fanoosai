@@ -9,21 +9,35 @@ from app.services.ai_service import AIService
 
 def test_normalizes_gemini_response_to_openai_choices_shape():
     response = AIService._normalize_response(json.dumps({
-        "candidates": [{"content": {"parts": [{"text": "ابر آروان (arvancloud.ir)"}]}}],
+        "candidates": [{
+            "content": {"parts": [{"text": "ابر آروان (arvancloud.ir)"}]},
+            "groundingMetadata": {
+                "groundingChunks": [{"web": {"uri": "https://example.com/gemini-source"}}],
+            },
+        }],
     }))
 
     assert json.loads(response) == {
         "choices": [{"message": {"content": "ابر آروان (arvancloud.ir)"}}],
+        "sources": ["https://example.com/gemini-source"],
     }
 
 
 def test_normalizes_claude_response_to_openai_choices_shape():
     response = AIService._normalize_response(json.dumps({
-        "content": [{"type": "text", "text": "پاسخ Claude"}, {"type": "tool_use", "name": "search"}],
+        "content": [
+            {
+                "type": "text",
+                "text": "پاسخ Claude",
+                "citations": [{"url": "https://example.com/claude-source"}],
+            },
+            {"type": "tool_use", "name": "search"},
+        ],
     }))
 
     assert json.loads(response) == {
         "choices": [{"message": {"content": "پاسخ Claude"}}],
+        "sources": ["https://example.com/claude-source"],
     }
 
 
@@ -67,6 +81,7 @@ async def test_user_prompts_use_responses_web_search(monkeypatch):
         "input": "latest news",
         "tools": [{"type": "web_search"}],
         "tool_choice": "auto",
+        "include": ["web_search_call.action.sources"],
         "max_output_tokens": 5000,
     }
 
@@ -88,6 +103,43 @@ def test_normalizes_responses_output_to_openai_choices_shape():
 
     assert json.loads(response) == {
         "choices": [{"message": {"content": "fresh answer"}}],
+    }
+
+
+def test_normalizes_unique_safe_web_sources():
+    response = AIService._normalize_response(json.dumps({
+        "output": [
+            {
+                "type": "web_search_call",
+                "action": {
+                    "sources": [
+                        {"type": "url", "url": "https://example.com/report"},
+                        {"type": "url", "url": "https://example.com/report"},
+                        {"type": "url", "url": "javascript:alert(1)"},
+                        {"type": "url", "url": "http://["},
+                    ],
+                },
+            },
+            {
+                "type": "message",
+                "content": [{
+                    "type": "output_text",
+                    "text": "fresh answer",
+                    "annotations": [{
+                        "type": "url_citation",
+                        "url": "https://example.org/article",
+                    }],
+                }],
+            },
+        ],
+    }))
+
+    assert json.loads(response) == {
+        "choices": [{"message": {"content": "fresh answer"}}],
+        "sources": [
+            "https://example.com/report",
+            "https://example.org/article",
+        ],
     }
 
 

@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -16,6 +17,8 @@ from app.analytics.schema import (
     ProjectHistory,
     PromptHistoryItem,
     ModelPerformance,
+    ProjectReferenceItem,
+    ProjectReferencesPage,
 )
 from app.analytics.router import router
 
@@ -37,6 +40,14 @@ def test_history_schemas_expose_dashboard_fields():
         "failed_runs",
         "success_rate",
     }
+    assert set(ProjectReferenceItem.model_fields) == {
+        "url",
+        "prompt_id",
+        "prompt",
+        "ai_model_id",
+        "ai_model",
+        "run_date",
+    }
 
 
 def test_history_list_endpoints_are_paginated_read_only_routes():
@@ -48,7 +59,109 @@ def test_history_list_endpoints_are_paginated_read_only_routes():
     assert routes[("GET", "/brands/{brand_id}")] == BrandDetails
     assert routes[("GET", "/prompts/{prompt_id}/brand-trends")] == PromptBrandTrends
     assert routes[("GET", "/projects/{project_id}/model-performance")] == list[ModelPerformance]
+    assert routes[("GET", "/projects/{project_id}/references")] == ProjectReferencesPage
     assert not any((route.methods - {"GET", "HEAD"}) for route in router.routes)
+
+
+@pytest.mark.asyncio
+async def test_project_references_cover_all_prompts_and_deduplicate_per_model(monkeypatch):
+    async def owned_project(project_id, session, user):
+        return None
+
+    class Rows:
+        def all(self):
+            return [
+                (
+                    1,
+                    "Prompt one",
+                    2,
+                    "Model two",
+                    datetime(2026, 7, 31, tzinfo=timezone.utc),
+                    json.dumps({
+                        "sources": [
+                            "https://example.com/one",
+                            "https://example.org/two",
+                            "javascript:alert(1)",
+                        ],
+                    }),
+                ),
+                (
+                    1,
+                    "Prompt one",
+                    2,
+                    "Model two",
+                    datetime(2026, 7, 30, tzinfo=timezone.utc),
+                    json.dumps({"sources": ["https://example.com/one"]}),
+                ),
+                (
+                    3,
+                    "Prompt three",
+                    4,
+                    "Model four",
+                    datetime(2026, 7, 29, tzinfo=timezone.utc),
+                    json.dumps({"sources": ["https://example.com/one"]}),
+                ),
+            ]
+
+    class Session:
+        async def execute(self, statement):
+            return Rows()
+
+    monkeypatch.setattr(analytics_router, "owned_project", owned_project)
+
+    result = await analytics_router.project_references(
+        9,
+        prompt_id=None,
+        ai_model_id=None,
+        page=1,
+        page_size=2,
+        session=Session(),
+        user=SimpleNamespace(id=1),
+    )
+
+    assert result.total == 3
+    assert [item.url for item in result.items] == [
+        "https://example.com/one",
+        "https://example.org/two",
+    ]
+    assert result.items[0].prompt_id == 1
+    assert result.items[0].ai_model_id == 2
+
+
+@pytest.mark.asyncio
+async def test_project_references_apply_prompt_and_model_filters(monkeypatch):
+    async def owned_project(project_id, session, user):
+        return None
+
+    class Rows:
+        def all(self):
+            return []
+
+    class Session:
+        statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return Rows()
+
+    monkeypatch.setattr(analytics_router, "owned_project", owned_project)
+    session = Session()
+    await analytics_router.project_references(
+        9,
+        prompt_id=7,
+        ai_model_id=3,
+        page=1,
+        page_size=50,
+        session=session,
+        user=SimpleNamespace(id=1),
+    )
+
+    sql = str(session.statement.compile(
+        dialect=postgresql.dialect(),
+        compile_kwargs={"literal_binds": True},
+    ))
+    assert "ai_runs.prompt_id = 7" in sql
+    assert "ai_runs.ai_model_id = 3" in sql
 
 
 @pytest.mark.asyncio

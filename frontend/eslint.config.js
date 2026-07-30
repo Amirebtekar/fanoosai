@@ -29,7 +29,7 @@ export default defineConfig(
         'warn',
         {
           allowConstantExport: true,
-          allowExportNames: ['Route', 'relativeDate', 'promptLines', 'modelResponseText'],
+          allowExportNames: ['Route', 'relativeDate', 'promptLines', 'runAvailablePromptModels', 'modelResponseText', 'defaultTrendSelection'],
         },
       ],
       'no-console': 'error',

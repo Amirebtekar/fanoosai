@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -74,6 +75,7 @@ class AIService:
                 "input": prompt_text,
                 "tools": [{"type": "web_search"}],
                 "tool_choice": "auto",
+                "include": ["web_search_call.action.sources"],
                 "max_output_tokens": 5000,
             }
         else:
@@ -142,6 +144,18 @@ class AIService:
     def _normalize_response(body: str) -> str:
         try:
             payload = json.loads(body)
+            sources: dict[str, None] = {}
+
+            def add_source(url) -> None:
+                if not isinstance(url, str):
+                    return
+                try:
+                    parsed = urlsplit(url)
+                except ValueError:
+                    return
+                if parsed.scheme in {"http", "https"} and parsed.netloc:
+                    sources[url] = None
+
             if "output" in payload:
                 parts = [
                     part
@@ -149,10 +163,27 @@ class AIService:
                     if item.get("type") == "message"
                     for part in item.get("content", [])
                 ]
+                for item in payload["output"]:
+                    if item.get("type") == "web_search_call":
+                        for source in item.get("action", {}).get("sources", []):
+                            add_source(source.get("url"))
+                for part in parts:
+                    for annotation in part.get("annotations", []):
+                        if annotation.get("type") == "url_citation":
+                            add_source(annotation.get("url") or annotation.get("url_citation", {}).get("url"))
             elif "candidates" in payload:
                 parts = payload["candidates"][0]["content"]["parts"]
+                for candidate in payload["candidates"]:
+                    for chunk in candidate.get("groundingMetadata", {}).get("groundingChunks", []):
+                        add_source(chunk.get("web", {}).get("uri"))
             else:
                 parts = payload["content"]
+                for part in parts:
+                    if part.get("type") == "web_search_tool_result":
+                        for result in part.get("content", []):
+                            add_source(result.get("url"))
+                    for citation in part.get("citations", []):
+                        add_source(citation.get("url"))
             text = "".join(
                 part["text"] for part in parts
                 if isinstance(part, dict)
@@ -161,7 +192,12 @@ class AIService:
             )
         except (TypeError, KeyError, IndexError, json.JSONDecodeError):
             return body
-        return json.dumps({"choices": [{"message": {"content": text}}]}) if text else body
+        if not text:
+            return body
+        normalized = {"choices": [{"message": {"content": text}}]}
+        if sources:
+            normalized["sources"] = list(sources)
+        return json.dumps(normalized)
 
     @classmethod
     async def close(cls) -> None:

@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select, update, func
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
@@ -114,11 +114,18 @@ class AIRunRepository:
     ) -> dict[int, str]:
         if not ai_model_ids:
             return {}
+        stale_before = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.RUN_CLAIM_LEASE_SECONDS
+        )
         rows = await self.session.execute(
             select(DailyPromptRun.ai_model_id, DailyPromptRun.source).where(
                 DailyPromptRun.prompt_id == prompt_id,
                 DailyPromptRun.ai_model_id.in_(ai_model_ids),
                 DailyPromptRun.run_date == run_date,
+                or_(
+                    DailyPromptRun.status == "completed",
+                    DailyPromptRun.claimed_at >= stale_before,
+                ),
             )
         )
         return dict(rows.all())

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { addPromptModel, archivePrompt, createPrompt, getErrorMessage, getExecutionAvailability, listAIModels, listPrompts, removePromptModel, restorePrompt, runPrompt, type AIModelRead, type PromptRead } from '@/lib/api'
+import { addPromptModel, archivePrompt, createPrompt, getErrorMessage, getExecutionAvailability, listAIModels, listPrompts, removePromptModel, restorePrompt, runPrompt, type AIModelRead, type PromptModelExecutionAvailability, type PromptRead } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -9,6 +9,15 @@ import { toast } from 'sonner'
 
 export function promptLines(value: string) {
   return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+}
+
+export async function runAvailablePromptModels(
+  models: PromptModelExecutionAvailability[],
+  run: (modelId: number) => Promise<unknown>,
+) {
+  const available = models.filter(model => model.can_run)
+  if (!available.length) throw new Error('همه مدل‌ها امروز اجرا شده‌اند.')
+  return Promise.all(available.map(model => run(model.model_id)))
 }
 
 export function PromptManagement({ projectId }: { projectId: number }) {
@@ -85,8 +94,7 @@ export function PromptManagement({ projectId }: { projectId: number }) {
       <div className="space-y-4">
         {active.map(prompt => <PromptCard key={prompt.id} prompt={prompt} allModels={models} onRun={() => update(async () => {
           const available = await getExecutionAvailability(projectId, prompt.id)
-          if (!available.some(model => model.can_run)) throw new Error('همه مدل‌ها امروز اجرا شده‌اند.')
-          return runPrompt(projectId, prompt.id)
+          return runAvailablePromptModels(available, modelId => runPrompt(projectId, prompt.id, modelId))
         }, 'پرامپت اجرا شد', 'خطا در اجرای پرامپت')} onArchive={() => update(() => archivePrompt(projectId, prompt.id), 'پرامپت بایگانی شد', 'خطا در بایگانی')} onAddModel={modelId => update(() => addPromptModel(projectId, prompt.id, modelId), 'مدل اضافه شد', 'خطا در افزودن مدل')} onRemoveModel={modelId => update(() => removePromptModel(projectId, prompt.id, modelId), 'مدل حذف شد', 'خطا در حذف مدل')} onNavigate={() => navigate({ to: '/projects/' + projectId + '/prompts/' + prompt.id })} />)}
         {!active.length && <p className="text-sm font-medium text-muted-text">پرامپت فعالی وجود ندارد.</p>}
       </div>

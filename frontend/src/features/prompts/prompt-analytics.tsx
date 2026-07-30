@@ -9,10 +9,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { toast } from 'sonner'
-import { Loader2, RotateCcw, SlidersHorizontal, FileText } from 'lucide-react'
+import { ExternalLink, FileText, Link2, Loader2, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Badge } from '@/components/ui/badge'
-import { getPromptBrandTrends, getLatestRankings, getPromptHistory, listPrompts, getErrorMessage, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
+import { getProjectReferences, getPromptBrandTrends, getLatestRankings, getPromptHistory, listPrompts, getErrorMessage, type ProjectReference, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
 import { BrandTrendChart } from './brand-trend-chart'
 
 const RANK_BG = ['#ef4444', '#dc2626', '#b91c1c', '#f5f0e8', '#e0ddd5']
@@ -33,6 +33,17 @@ export function modelResponseText(responseText: string | null): string {
   return responseText
 }
 
+export function defaultTrendSelection(trends: PromptBrandTrends) {
+  const modelId = trends.items[0]?.ai_model_id
+  return {
+    modelId: modelId ? String(modelId) : '',
+    trends: {
+      ...trends,
+      items: modelId ? trends.items.filter(item => item.ai_model_id === modelId) : [],
+    },
+  }
+}
+
 export function PromptAnalyticsPage() {
   const { projectId, promptId } = useParams({ from: '/_authenticated/projects_/$projectId/prompts/$promptId' })
   const navigate = useNavigate()
@@ -40,13 +51,17 @@ export function PromptAnalyticsPage() {
   const [rankings, setRankings] = useState<PromptRankingItem[]>([])
   const [trends, setTrends] = useState<PromptBrandTrends | null>(null)
   const [allTrends, setAllTrends] = useState<PromptBrandTrends | null>(null)
-  const [selectedModel, setSelectedModel] = useState('all')
+  const [selectedModel, setSelectedModel] = useState('')
   const [selectedBrand, setSelectedBrand] = useState('all')
   const [startDate, setStartDate] = useState<Date>()
   const [endDate, setEndDate] = useState<Date>()
   const [trendLoading, setTrendLoading] = useState(false)
   const [dateError, setDateError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [references, setReferences] = useState<ProjectReference[]>([])
+  const [referencePage, setReferencePage] = useState(1)
+  const [referenceTotal, setReferenceTotal] = useState(0)
+  const [referenceLoading, setReferenceLoading] = useState(false)
   const [history, setHistory] = useState<PromptHistoryItem[]>([])
   const [historyModel, setHistoryModel] = useState('all')
   const [historyDate, setHistoryDate] = useState<Date>()
@@ -56,17 +71,40 @@ export function PromptAnalyticsPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [promptsData, rankingsData, trendData] = await Promise.all([listPrompts(Number(projectId)), getLatestRankings(Number(promptId)), getPromptBrandTrends(Number(promptId))])
+      const [promptsData, rankingsData, trendData, referenceData] = await Promise.all([
+        listPrompts(Number(projectId)),
+        getLatestRankings(Number(promptId)),
+        getPromptBrandTrends(Number(promptId)),
+        getProjectReferences(Number(projectId), { prompt_id: Number(promptId) }),
+      ])
+      const initialTrend = defaultTrendSelection(trendData)
       setPrompt(promptsData.find(p => p.id === Number(promptId)) || null)
       setRankings(rankingsData.items); setRankingTotal(rankingsData.total)
-      setTrends(trendData)
+      setSelectedModel(initialTrend.modelId)
+      setTrends(initialTrend.trends)
       setAllTrends(trendData)
+      setReferences(referenceData.items)
+      setReferenceTotal(referenceData.total)
     }
     catch (e) { toast.error(getErrorMessage(e, 'خطا در دریافت آنالیز')) }
     finally { setLoading(false) }
   }, [projectId, promptId])
 
   useEffect(() => { void Promise.resolve().then(fetchData) }, [fetchData])
+
+  const loadProjectReferences = async (page = 1) => {
+    setReferenceLoading(true)
+    try {
+      const result = await getProjectReferences(Number(projectId), {
+        prompt_id: Number(promptId),
+        page,
+      })
+      setReferences(result.items)
+      setReferencePage(result.page)
+      setReferenceTotal(result.total)
+    } catch (e) { toast.error(getErrorMessage(e, 'خطا در دریافت منابع وب')) }
+    finally { setReferenceLoading(false) }
+  }
 
   const applyTrendFilters = async () => {
     if (startDate && endDate && startDate > endDate) {
@@ -77,16 +115,16 @@ export function PromptAnalyticsPage() {
     setTrendLoading(true)
     try {
       const filtered = await getPromptBrandTrends(Number(promptId), {
-        ai_model_id: selectedModel === 'all' ? undefined : Number(selectedModel),
+        ai_model_id: Number(selectedModel),
         brand_ids: selectedBrand === 'all' ? undefined : [Number(selectedBrand)],
         start_date: startDate ? `${format(startDate, 'yyyy-MM-dd')}T00:00:00` : undefined,
         end_date: endDate ? `${format(endDate, 'yyyy-MM-dd')}T23:59:59` : undefined,
       })
       setTrends(filtered)
-      const ranked = await getLatestRankings(Number(promptId), { page: 1, ai_model_id: selectedModel === 'all' ? undefined : Number(selectedModel), brand_id: selectedBrand === 'all' ? undefined : Number(selectedBrand) })
+      const ranked = await getLatestRankings(Number(promptId), { page: 1, ai_model_id: Number(selectedModel), brand_id: selectedBrand === 'all' ? undefined : Number(selectedBrand) })
       setRankings(ranked.items); setRankingTotal(ranked.total); setRankingPage(1)
       const query = new URLSearchParams()
-      if (selectedModel !== 'all') query.set('model', selectedModel)
+      query.set('model', selectedModel)
       if (selectedBrand !== 'all') query.set('brand', selectedBrand)
       if (startDate) query.set('start', format(startDate, 'yyyy-MM-dd'))
       if (endDate) query.set('end', format(endDate, 'yyyy-MM-dd'))
@@ -96,12 +134,14 @@ export function PromptAnalyticsPage() {
   }
 
   const clearTrendFilters = () => {
-    setSelectedModel('all')
+    if (!allTrends) return
+    const initialTrend = defaultTrendSelection(allTrends)
+    setSelectedModel(initialTrend.modelId)
     setSelectedBrand('all')
     setStartDate(undefined)
     setEndDate(undefined)
     setDateError('')
-    setTrends(allTrends)
+    setTrends(initialTrend.trends)
     window.history.replaceState(null, '', window.location.pathname)
   }
 
@@ -121,7 +161,7 @@ export function PromptAnalyticsPage() {
 
   const modelOptions = [...new Map((allTrends?.items ?? []).map(item => [item.ai_model_id, item.ai_model])).entries()]
   const brandOptions = [...new Map((allTrends?.items ?? []).map(item => [item.brand_id, item.brand])).entries()]
-  const activeFilterCount = [selectedModel !== 'all', selectedBrand !== 'all', Boolean(startDate), Boolean(endDate)].filter(Boolean).length
+  const activeFilterCount = [Boolean(selectedModel), selectedBrand !== 'all', Boolean(startDate), Boolean(endDate)].filter(Boolean).length
 
   const groupedByModel = rankings.reduce<Record<string, PromptRankingItem[]>>((acc, item) => { if (!acc[item.ai_model]) acc[item.ai_model] = []; acc[item.ai_model].push(item); return acc }, {})
 
@@ -151,6 +191,121 @@ export function PromptAnalyticsPage() {
             </CardContent>
           </Card>
         )}
+
+        {allTrends && allTrends.items.length > 0 && (
+          <div className="mb-6 space-y-4">
+            <Card className="border-border/70 bg-card/95 shadow-lg">
+              <CardHeader className="gap-4 border-b border-border/70 pb-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <SlidersHorizontal className="size-5" aria-hidden="true" />
+                    </div>
+                    <div className="space-y-1">
+                      <CardTitle className="text-base font-bold">فیلترهای نمودار</CardTitle>
+                      <CardDescription className="text-sm font-medium text-muted-text">داده‌ی نمودار را بر اساس مدل، برند و بازه‌ی زمانی محدود کنید.</CardDescription>
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="w-fit shrink-0 border-border/70">
+                    {activeFilterCount ? `${activeFilterCount.toLocaleString('fa-IR')} فیلتر فعال` : 'بدون فیلتر'}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5 pt-5">
+                <div className="grid grid-cols-1 gap-4 rounded-lg border border-border/70 bg-muted/20 p-4 sm:grid-cols-2 2xl:grid-cols-4">
+                  <div className="grid min-w-0 gap-2">
+                    <label className="text-sm font-semibold" htmlFor="trend-model">مدل AI</label>
+                    <Select value={selectedModel} onValueChange={setSelectedModel}>
+                      <SelectTrigger id="trend-model" className="h-11 w-full min-w-0 border-border/80 bg-background font-medium"><SelectValue placeholder="انتخاب مدل" /></SelectTrigger>
+                      <SelectContent>
+                        {modelOptions.map(([id, name]) => <SelectItem key={id} value={String(id)}>{name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid min-w-0 gap-2">
+                    <label className="text-sm font-semibold" htmlFor="trend-brand">برند</label>
+                    <Select value={selectedBrand} onValueChange={setSelectedBrand}>
+                      <SelectTrigger id="trend-brand" className="h-11 w-full min-w-0 border-border/80 bg-background font-medium"><SelectValue placeholder="همه برندها" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">همه برندها</SelectItem>
+                        {brandOptions.map(([id, name]) => <SelectItem key={id} value={String(id)}>{name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <span className="text-sm font-semibold">از تاریخ</span>
+                    <DatePicker selected={startDate} onSelect={setStartDate} placeholder="انتخاب تاریخ شروع" />
+                  </div>
+                  <div className="grid gap-2">
+                    <span className="text-sm font-semibold">تا تاریخ</span>
+                    <DatePicker selected={endDate} onSelect={setEndDate} placeholder="انتخاب تاریخ پایان" />
+                  </div>
+                </div>
+                {dateError && <p role="alert" className="text-sm font-medium text-destructive">{dateError}</p>}
+                <div className="flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground">برای به‌روزرسانی نمودار، فیلترها را اعمال کنید.</p>
+                  <div className="flex flex-wrap gap-2">
+                  <Button type="button" onClick={applyTrendFilters} disabled={trendLoading} className="min-w-32 font-semibold">
+                    {trendLoading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+                    {trendLoading ? 'در حال بارگذاری...' : 'اعمال فیلتر'}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={clearTrendFilters} disabled={trendLoading} className="font-semibold">
+                    <RotateCcw className="size-4" aria-hidden="true" />
+                    پاک کردن
+                  </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            {trends && trends.items.length > 0 ? <BrandTrendChart items={trends.items} /> : <Card className="border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardContent className="py-10 text-center text-sm font-medium text-muted-text">برای این فیلتر داده‌ای پیدا نشد.</CardContent></Card>}
+          </div>
+        )}
+
+        <Card className="mb-6 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+          <CardHeader className="gap-3 border-b border-border/70">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Link2 className="size-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold">منابع وب این پرامپت</CardTitle>
+                  <CardDescription className="mt-1 text-sm font-medium text-muted-text">رفرنس‌های ثبت‌شده برای این پرامپت.</CardDescription>
+                </div>
+              </div>
+              <Badge variant="outline">{referenceTotal.toLocaleString('fa-IR')} منبع</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-5">
+            {references.length ? (
+              <ol className="max-h-96 space-y-3 overflow-auto" aria-label="فهرست منابع وب">
+                {references.map(reference => (
+                  <li key={`${reference.prompt_id}-${reference.ai_model_id}-${reference.url}`} className="border border-border bg-background p-3">
+                    <a className="inline-flex max-w-full items-start gap-1 break-all text-sm font-semibold text-primary underline underline-offset-4" href={reference.url} target="_blank" rel="noreferrer" dir="ltr">
+                      <span>{reference.url}</span>
+                      <ExternalLink className="mt-1 size-3.5 shrink-0" aria-hidden="true" />
+                      <span className="sr-only">در پنجره جدید باز می‌شود</span>
+                    </a>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-text">
+                      <span className="max-w-full truncate">پرامپت {reference.prompt_id.toLocaleString('fa-IR')}: {reference.prompt}</span>
+                      <span>{reference.ai_model}</span>
+                      <time dateTime={reference.run_date}>{new Date(reference.run_date).toLocaleString('fa-IR')}</time>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p role="status" className="py-6 text-center text-sm font-medium text-muted-text">برای فیلتر انتخاب‌شده منبعی ثبت نشده است.</p>
+            )}
+            {referenceTotal > 50 && (
+              <div className="flex items-center justify-end gap-2 border-t border-border/70 pt-4">
+                <Button type="button" variant="outline" disabled={referenceLoading || referencePage === 1} onClick={() => loadProjectReferences(referencePage - 1)}>قبلی</Button>
+                <span className="text-xs text-muted-text">صفحه {referencePage.toLocaleString('fa-IR')}</span>
+                <Button type="button" variant="outline" disabled={referenceLoading || referencePage * 50 >= referenceTotal} onClick={() => loadProjectReferences(referencePage + 1)}>بعدی</Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card className="mb-6 border-border shadow-[6px_6px_0_var(--color-shadow)]">
           <CardHeader className="gap-2 border-b border-border/70">
@@ -202,76 +357,6 @@ export function PromptAnalyticsPage() {
             )}
           </CardContent>
         </Card>
-
-        {allTrends && allTrends.items.length > 0 && (
-          <div className="mb-6 space-y-4">
-            <Card className="border-border/70 bg-card/95 shadow-lg">
-              <CardHeader className="gap-4 border-b border-border/70 pb-5">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                      <SlidersHorizontal className="size-5" aria-hidden="true" />
-                    </div>
-                    <div className="space-y-1">
-                      <CardTitle className="text-base font-bold">فیلترهای نمودار</CardTitle>
-                      <CardDescription className="text-sm font-medium text-muted-text">داده‌ی نمودار را بر اساس مدل، برند و بازه‌ی زمانی محدود کنید.</CardDescription>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="w-fit shrink-0 border-border/70">
-                    {activeFilterCount ? `${activeFilterCount.toLocaleString('fa-IR')} فیلتر فعال` : 'بدون فیلتر'}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-5 pt-5">
-                <div className="grid gap-4 rounded-lg border border-border/70 bg-muted/20 p-4 md:grid-cols-2 lg:grid-cols-4">
-                  <div className="grid gap-2">
-                    <label className="text-sm font-semibold" htmlFor="trend-model">مدل AI</label>
-                    <Select value={selectedModel} onValueChange={setSelectedModel}>
-                      <SelectTrigger id="trend-model" className="h-11 border-border/80 bg-background font-medium"><SelectValue placeholder="همه مدل‌ها" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">همه مدل‌ها</SelectItem>
-                        {modelOptions.map(([id, name]) => <SelectItem key={id} value={String(id)}>{name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-sm font-semibold" htmlFor="trend-brand">برند</label>
-                    <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                      <SelectTrigger id="trend-brand" className="h-11 border-border/80 bg-background font-medium"><SelectValue placeholder="همه برندها" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">همه برندها</SelectItem>
-                        {brandOptions.map(([id, name]) => <SelectItem key={id} value={String(id)}>{name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <span className="text-sm font-semibold">از تاریخ</span>
-                    <DatePicker selected={startDate} onSelect={setStartDate} placeholder="انتخاب تاریخ شروع" />
-                  </div>
-                  <div className="grid gap-2">
-                    <span className="text-sm font-semibold">تا تاریخ</span>
-                    <DatePicker selected={endDate} onSelect={setEndDate} placeholder="انتخاب تاریخ پایان" />
-                  </div>
-                </div>
-                {dateError && <p role="alert" className="text-sm font-medium text-destructive">{dateError}</p>}
-                <div className="flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-muted-foreground">برای به‌روزرسانی نمودار، فیلترها را اعمال کنید.</p>
-                  <div className="flex flex-wrap gap-2">
-                  <Button type="button" onClick={applyTrendFilters} disabled={trendLoading} className="min-w-32 font-semibold">
-                    {trendLoading && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-                    {trendLoading ? 'در حال بارگذاری...' : 'اعمال فیلتر'}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={clearTrendFilters} disabled={trendLoading} className="font-semibold">
-                    <RotateCcw className="size-4" aria-hidden="true" />
-                    پاک کردن
-                  </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            {trends && trends.items.length > 0 ? <BrandTrendChart items={trends.items} /> : <Card className="border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardContent className="py-10 text-center text-sm font-medium text-muted-text">برای این فیلتر داده‌ای پیدا نشد.</CardContent></Card>}
-          </div>
-        )}
 
         {rankings.length === 0 && (
           <Card className="border-border shadow-[6px_6px_0_var(--color-shadow)]">

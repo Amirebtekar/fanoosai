@@ -213,6 +213,7 @@ async def remove_prompt_model(
 async def run_prompt(
     project_id: int,
     prompt_id: int,
+    ai_model_id: int | None = Query(None, gt=0),
     prompt_service: PromptService = Depends(get_prompt_service),
     run_service: AIRunService = Depends(get_ai_run_service),
     current_user: UserTable = Depends(get_current_user),
@@ -232,6 +233,8 @@ async def run_prompt(
         if not prompt.models:
             raise ValueError("هیچ مدل AI برای این Prompt انتخاب نشده است")
 
+        if ai_model_id is not None:
+            return await run_service.run_prompt_model(prompt, ai_model_id)
         return await run_service.run_prompt_models(prompt)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
