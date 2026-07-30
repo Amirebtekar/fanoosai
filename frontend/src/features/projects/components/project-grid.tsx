@@ -216,10 +216,18 @@ export function ProjectGrid() {
             <DialogTitle className="text-xl font-black">پروژه جدید</DialogTitle>
             <DialogDescription className="font-medium text-muted-text">اطلاعات پروژه جدید را وارد کنید.</DialogDescription>
           </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={event => {
+              event.preventDefault()
+              void handleCreate()
+            }}
+          >
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-bold">نام پروژه</label>
               <Input
+                required
                 placeholder="مثال: فروشگاه آنلاین"
                 value={newProject.name}
                 aria-label='نام پروژه'
@@ -256,15 +264,16 @@ export function ProjectGrid() {
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowCreate(false)} className="border-border font-bold">انصراف</Button>
+            <Button type="button" variant="outline" onClick={() => setShowCreate(false)} className="border-border font-bold">انصراف</Button>
             <Button
-              disabled={!newProject.name.trim() || !newProject.website_url.trim() || !newProject.brand_name.trim() || creating}
-              onClick={handleCreate}
+              type="submit"
+              disabled={creating}
               className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50"
             >
               {creating ? 'در حال ساخت...' : 'ساخت پروژه'}
             </Button>
           </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { addAlertRule, addProjectBrand, createReportShare, deleteProjectBrand, exportRunsCsv, getModelPerformance, getProjectDashboard, getReportShareUrl, listAlerts, listObservedBrands, listProjectBrands, readAlert, revokeReportShare, type AlertItem, type ModelPerformance, type ObservedBrand, type ProjectBrand, type ProjectDashboard } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,16 @@ export function ProjectManagementPage() {
   return null
 }
 
+export function ProjectSection({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+  return <details open={defaultOpen} className="group mb-4 border-2 border-border bg-card">
+    <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+      <h2 className="text-lg font-black">{title}</h2>
+      <span aria-hidden="true" className="text-xl font-black transition-transform group-open:rotate-45">+</span>
+    </summary>
+    <div className="border-t-2 border-border p-4 [&>*:last-child]:mb-0">{children}</div>
+  </details>
+}
+
 export function ProjectManagementSections({ projectId }: { projectId: number }) {
   return <>
     <section className="mb-8 border-r-4 border-primary bg-card p-4" aria-labelledby="management-help">
@@ -25,12 +35,10 @@ export function ProjectManagementSections({ projectId }: { projectId: number }) 
       </div>
       <p className="mt-2 text-sm leading-6 text-muted-text">برای ثبت رقیب، بررسی شاخص‌ها، ساخت هشدار و دریافت گزارش از این صفحه استفاده کنید.</p>
     </section>
-    <PromptManagement projectId={projectId} />
-    <CompetitorSettings projectId={projectId} />
-    <ProjectKpis projectId={projectId} />
-    <ModelPerformanceTable projectId={projectId} />
-    <AlertInbox projectId={projectId} />
-    <ReportActions projectId={projectId} />
+    <ProjectSection title="پرامپت‌ها و مدل‌ها" defaultOpen><PromptManagement projectId={projectId} /></ProjectSection>
+    <ProjectSection title="رقبا"><CompetitorSettings projectId={projectId} /></ProjectSection>
+    <ProjectSection title="شاخص‌ها و عملکرد مدل‌ها"><ProjectKpis projectId={projectId} /><ModelPerformanceTable projectId={projectId} /></ProjectSection>
+    <ProjectSection title="هشدارها و گزارش"><AlertInbox projectId={projectId} /><ReportActions projectId={projectId} /></ProjectSection>
   </>
 }
 

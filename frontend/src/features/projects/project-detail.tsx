@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { ProjectManagementSections } from './project-management'
+import { ProjectManagementSections, ProjectSection } from './project-management'
 import { toast } from 'sonner'
 
 export function ProjectDetailPage() {
@@ -31,5 +31,5 @@ function ProjectRuns({ projectId }: { projectId: number }) {
 
   useEffect(() => { void load() }, [load])
 
-  return <section className="mb-8"><h2 className="mb-4 text-lg font-black">گزارش اجراها ({total})</h2><div className="space-y-2">{runs.map(run => <div key={run.ai_run_id} className="border-2 border-border bg-card p-3 text-sm"><div className="flex justify-between gap-3 font-bold"><span>{run.ai_model}</span><span>{run.status}</span></div><p className="mt-1 truncate text-muted-text">{run.prompt}</p><p className="mt-1 text-xs text-muted-text">{new Date(run.created_at).toLocaleString('fa-IR')}</p></div>)}{!runs.length && <p className="text-sm text-muted-text">اجرایی ثبت نشده است.</p>}</div>{total > 20 && <div className="mt-3 flex gap-2"><Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>قبلی</Button><Button variant="outline" size="sm" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>بعدی</Button></div>}</section>
+  return <ProjectSection title={`گزارش اجراها (${total})`}><section aria-label="گزارش اجراها"><div className="space-y-2">{runs.map(run => <div key={run.ai_run_id} className="border-2 border-border bg-card p-3 text-sm"><div className="flex justify-between gap-3 font-bold"><span>{run.ai_model}</span><span>{run.status}</span></div><p className="mt-1 truncate text-muted-text">{run.prompt}</p><p className="mt-1 text-xs text-muted-text">{new Date(run.created_at).toLocaleString('fa-IR')}</p></div>)}{!runs.length && <p className="text-sm text-muted-text">اجرایی ثبت نشده است.</p>}</div>{total > 20 && <div className="mt-3 flex gap-2"><Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>قبلی</Button><Button variant="outline" size="sm" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>بعدی</Button></div>}</section></ProjectSection>
 }
