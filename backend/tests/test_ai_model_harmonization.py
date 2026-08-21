@@ -15,7 +15,7 @@ def test_avalai_model_key_normalizes_provider_prefix_and_claude_version():
     assert avalai_model_key("x-ai/grok-4.20") == "grok-4.20-reasoning"
 
 
-def test_harmonization_keeps_only_models_available_in_both_providers():
+def test_harmonization_uses_primary_gateway_models():
     parspack = {"data": [
         {"id": "openai/gpt-5.1-chat", "owned_by": "OpenAI"},
         {"id": "anthropic/claude-sonnet-4.6", "owned_by": "Anthropic"},
@@ -44,4 +44,24 @@ def test_harmonization_keeps_only_models_available_in_both_providers():
         "google/gemma-3-12b-it",
         "x-ai/grok-4-fast",
         "x-ai/grok-4",
+        "x-ai/grok-3",
+        "x-ai/grok-4.20-multi-agent",
+        "x-ai/primary-only",
     ]
+
+
+def test_harmonization_keeps_primary_model_when_fallback_lacks_it():
+    rows = AIModelService._common_gateway_models(
+        {"data": [{"id": "google/gemini-3.1-pro-preview", "owned_by": "Google"}]},
+        {"data": []},
+    )
+
+    assert [row["model_key"] for row in rows] == ["google/gemini-3.1-pro-preview"]
+
+
+def test_harmonization_uses_canonical_model_key_for_display_name():
+    rows = AIModelService._normalize_gateway_models({
+        "data": [{"id": "openai/gpt-5-chat", "name": "GPT-5", "owned_by": "OpenAI"}],
+    })
+
+    assert rows[0]["name"] == "openai/gpt-5-chat"

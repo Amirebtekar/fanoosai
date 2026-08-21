@@ -5,7 +5,6 @@ import aiohttp
 from app.core.config import settings
 from app.database.models import AIModel
 from app.repositories.ai_model_repository import AIModelRepository
-from app.services.ai_service import AVALAI_REASONING_GROK_MODELS, avalai_model_key
 
 
 class AIModelService:
@@ -54,27 +53,14 @@ class AIModelService:
 
     @classmethod
     def _common_gateway_models(cls, parspack: dict, avalai: dict) -> list[dict]:
-        avalai_ids = {
-            item["id"].lower()
-            for item in avalai.get("data", [])
-            if item.get("id")
-        }
-        return [
-            row
-            for row in cls._normalize_gateway_models(parspack)
-            if avalai_model_key(row["model_key"]).lower() in avalai_ids
-            and (
-                not row["model_key"].startswith("x-ai/")
-                or row["model_key"] in AVALAI_REASONING_GROK_MODELS
-            )
-        ]
+        return cls._normalize_gateway_models(parspack)
 
     @staticmethod
     def _normalize_gateway_models(payload: dict) -> list[dict]:
         rows = payload.get("data", payload if isinstance(payload, list) else [])
         return [
             {
-                "name": item.get("name") or item.get("id"),
+                "name": item.get("id"),
                 "provider": item.get("owned_by") or item.get("provider") or "Gateway",
                 "model_key": item.get("id"),
             }

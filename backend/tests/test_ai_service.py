@@ -1,10 +1,35 @@
 import json
+import ssl
 from types import SimpleNamespace
 
 import pytest
 
 import app.services.ai_service as ai_service_module
 from app.services.ai_service import AIService
+
+
+@pytest.mark.asyncio
+async def test_session_uses_a_verified_certifi_tls_context(monkeypatch):
+    captured = {}
+
+    class Connector:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    class Session:
+        closed = False
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(ai_service_module.aiohttp, "TCPConnector", Connector)
+    monkeypatch.setattr(ai_service_module.aiohttp, "ClientSession", lambda **kwargs: Session())
+    AIService._session = None
+
+    await AIService._get_session()
+
+    assert captured["ssl"].verify_mode == ssl.CERT_REQUIRED
+    await AIService.close()
 
 
 def test_normalizes_gemini_response_to_openai_choices_shape():

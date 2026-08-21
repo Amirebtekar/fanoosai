@@ -1,9 +1,11 @@
 import asyncio
 import json
 import logging
+import ssl
 from urllib.parse import urlsplit
 
 import aiohttp
+import certifi
 
 from app.core.config import settings
 from app.observability import AI_DURATION, AI_REQUESTS, duration_seconds
@@ -45,7 +47,11 @@ class AIService:
     async def _get_session(cls) -> aiohttp.ClientSession:
         if cls._session is None or cls._session.closed:
             timeout = aiohttp.ClientTimeout(total=60, connect=10, sock_read=50)
-            connector = aiohttp.TCPConnector(limit=100, ttl_dns_cache=300)
+            connector = aiohttp.TCPConnector(
+                limit=100,
+                ttl_dns_cache=300,
+                ssl=ssl.create_default_context(cafile=certifi.where()),
+            )
             headers = {"Accept": "application/json", "Content-Type": "application/json"}
             if settings.AI_GATEWAY_API_KEY:
                 headers["Authorization"] = f"Bearer {settings.AI_GATEWAY_API_KEY}"
