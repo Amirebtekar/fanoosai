@@ -170,3 +170,25 @@ export function getProjectReferences(projectId: number, params: { prompt_id?: nu
 
 export function listAIModels(): Promise<AIModelRead[]> { return authRequest('GET', '/ai-models') }
 export function logout(): Promise<void> { return authRequest('POST', '/auth/jwt/logout') }
+
+// --- Admin Panel ---
+export interface AdminOverview { users: number; projects: number; prompts_active: number; prompts_archived: number; models_active: number; models_inactive: number; runs_total: number; runs_failed: number }
+export interface AdminPromptRead extends PromptRead { project_name: string }
+export interface ModelHealthStats { total_runs: number; failed_runs: number; last_run?: string | null }
+
+export function getAdminOverview(): Promise<AdminOverview> { return authRequest('GET', '/admin/overview') }
+export function listAdminPrompts(params: { include_archived?: boolean; search?: string } = {}): Promise<AdminPromptRead[]> {
+  const query = new URLSearchParams()
+  if (params.include_archived) query.set('include_archived', 'true')
+  if (params.search) query.set('search', params.search)
+  const suffix = query.toString() ? '?' + query.toString() : ''
+  return authRequest('GET', '/admin/prompts' + suffix)
+}
+export function setAdminPromptActive(promptId: number, is_active: boolean): Promise<AdminPromptRead> { return authRequest('PATCH', `/admin/prompts/${promptId}/active?is_active=${is_active}`) }
+export function syncGatewayModels(): Promise<AIModelRead[]> { return authRequest('POST', '/ai-models/sync') }
+export function getModelHealth(modelId: number): Promise<ModelHealthStats> { return authRequest('GET', `/ai-models/${modelId}/health`) }
+
+export interface ExtractionSettings { extraction_prompt: string; extraction_model: string; domain_format_instruction: string }
+export function getExtractionSettings(): Promise<ExtractionSettings> { return authRequest('GET', '/admin/extraction-settings') }
+export function updateExtractionSettings(body: ExtractionSettings): Promise<ExtractionSettings> { return authRequest('PUT', '/admin/extraction-settings', body) }
+export function resetExtractionSettings(): Promise<ExtractionSettings> { return authRequest('POST', '/admin/extraction-settings/reset') }

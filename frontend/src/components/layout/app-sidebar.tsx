@@ -31,9 +31,11 @@ export function AppSidebar() {
         {/* <AppTitle /> */}
       </SidebarHeader>
       <SidebarContent dir='rtl'>
-        {sidebarData.navGroups.map((props) => (
-          <NavGroup key={props.title} {...props} />
-        ))}
+        {sidebarData.navGroups
+          .filter((group) => !group.superuserOnly || authUser?.is_superuser)
+          .map((props) => (
+            <NavGroup key={props.title} {...props} />
+          ))}
       </SidebarContent>
       <SidebarFooter dir='rtl'>
         <NavUser user={user} />

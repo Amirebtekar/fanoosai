@@ -33,6 +33,7 @@ type NavItem = NavCollapsible | NavLink
 type NavGroup = {
   title: string
   items: NavItem[]
+  superuserOnly?: boolean
 }
 
 type SidebarData = {

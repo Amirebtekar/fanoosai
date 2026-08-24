@@ -11,6 +11,7 @@ from app.infrastructure.redis_client import get_redis
 from app.infrastructure.run_queue import PromptRunJob, PromptRunQueue
 from app.observability import QUEUE_JOBS
 from app.repositories.ai_run_repository import AIRunRepository
+from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.services.ai_run_service import AIRunService
 from app.services.ai_service import AIService
 from app.services.brand_extraction_service import BrandExtractionService
@@ -25,8 +26,8 @@ async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
     async with async_session_maker() as session:
         ai_service = AIService()
         service = AIRunService(
-            AIRunRepository(session), ai_service, BrandExtractionService(ai_service),
-            BrandPersistenceService(session), queue,
+            AIRunRepository(session), ai_service, BrandExtractionService(ai_service, session),
+            BrandPersistenceService(session), queue, SystemSettingsRepository(session),
         )
         if job.source == "extraction_retry":
             if job.ai_run_id is not None:

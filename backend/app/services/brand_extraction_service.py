@@ -4,7 +4,14 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
+from app.repositories.system_settings_repository import (
+    EXTRACTION_MODEL_KEY,
+    EXTRACTION_PROMPT_KEY,
+    get_setting,
+)
 from app.services.ai_service import AIService
 
 EXTRACTION_PROMPT = """Extract brands from the original AI response below.
@@ -59,17 +66,26 @@ class ExtractionResult:
     brands: list[ExtractedBrand]
 
 class BrandExtractionService:
-    def __init__(self, ai_gateway: AIService):
+    def __init__(self, ai_gateway: AIService, session: AsyncSession | None = None):
         self.ai_gateway = ai_gateway
+        self.session = session
 
     async def extract(self, response_text: str) -> ExtractionResult:
-        prompt = EXTRACTION_PROMPT.format(response_text=response_text)
+        prompt_template, model_key = await self._resolve_config()
+        prompt = prompt_template.format(response_text=response_text)
         raw = await self.ai_gateway.run_prompt(
-            settings.BRAND_EXTRACTION_MODEL,
+            model_key,
             prompt,
             response_format=EXTRACTION_RESPONSE_FORMAT,
         )
         return self._parse(raw)
+
+    async def _resolve_config(self) -> tuple[str, str]:
+        if self.session is None:
+            return EXTRACTION_PROMPT, settings.BRAND_EXTRACTION_MODEL
+        template = await get_setting(self.session, EXTRACTION_PROMPT_KEY, EXTRACTION_PROMPT)
+        model = await get_setting(self.session, EXTRACTION_MODEL_KEY, settings.BRAND_EXTRACTION_MODEL)
+        return template, model
 
     @staticmethod
     def _parse(raw: str) -> ExtractionResult:

@@ -3,6 +3,7 @@ import {
   Home,
   Command,
   Settings,
+  ShieldCheck,
 } from 'lucide-react'
 import {
   IconFolder,
@@ -51,6 +52,17 @@ export const sidebarData: SidebarData = {
           title: 'آنالیتیکس',
           url: '/analytics',
           icon: IconChartBar,
+        },
+      ],
+    },
+    {
+      title: 'مدیریت سیستم',
+      superuserOnly: true,
+      items: [
+        {
+          title: 'پنل ادمین',
+          url: '/admin',
+          icon: ShieldCheck,
         },
       ],
     },

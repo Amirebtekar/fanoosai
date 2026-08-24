@@ -16,6 +16,7 @@ from app.services.brand_extraction_service import BrandExtractionService
 from app.services.brand_persistence_service import BrandPersistenceService
 from app.infrastructure.redis_client import get_redis
 from app.infrastructure.run_queue import PromptRunQueue
+from app.repositories.system_settings_repository import SystemSettingsRepository
 from app.projects.schema import PromptCreate, PromptRead
 from app.projects.ai_models_schema import AIModelRead
 from app.projects.ai_runs_schema import AIRunResult, PromptModelExecutionAvailability
@@ -36,9 +37,10 @@ def get_ai_run_service(session: AsyncSession = Depends(get_session)) -> AIRunSer
     return AIRunService(
         AIRunRepository(session),
         ai_service,
-        BrandExtractionService(ai_service),
+        BrandExtractionService(ai_service, session),
         BrandPersistenceService(session),
         PromptRunQueue(get_redis()),
+        SystemSettingsRepository(session),
     )
 
 async def require_project_writer(project_id: int, user_id: int, session: AsyncSession) -> None:

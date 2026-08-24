@@ -6,6 +6,11 @@ from app.core.config import settings
 from app.database.models import Prompt
 from app.infrastructure.run_queue import PromptRunJob, PromptRunQueue
 from app.repositories.ai_run_repository import AIRunRepository
+from app.repositories.system_settings_repository import (
+    DOMAIN_INSTRUCTION_KEY,
+    SystemSettingsRepository,
+    get_setting,
+)
 from app.services.ai_service import AIService
 from app.services.brand_extraction_service import BrandExtractionService
 from app.services.brand_persistence_service import BrandPersistenceService
@@ -24,12 +29,14 @@ class AIRunService:
         extraction_service: BrandExtractionService,
         persistence_service: BrandPersistenceService,
         retry_queue: PromptRunQueue | None = None,
+        system_settings: SystemSettingsRepository | None = None,
     ):
         self.run_repo = run_repo
         self.ai_service = ai_service
         self.extraction_service = extraction_service
         self.persistence_service = persistence_service
         self.retry_queue = retry_queue
+        self.system_settings = system_settings
 
     @staticmethod
     def _run_date(now: datetime | None) -> date:
@@ -74,7 +81,10 @@ class AIRunService:
             raise ValueError("Invalid run source")
         if source != "retry" and not await self.run_repo.claim_daily_run(prompt.id, model.id, run_date, source):
             return []
-        request_text = f"{prompt.text}\n\n{DOMAIN_FORMAT_INSTRUCTION}"
+        domain_instruction = DOMAIN_FORMAT_INSTRUCTION
+        if self.system_settings is not None:
+            domain_instruction = await get_setting(self.system_settings.session, DOMAIN_INSTRUCTION_KEY, DOMAIN_FORMAT_INSTRUCTION)
+        request_text = f"{prompt.text}\n\n{domain_instruction}"
         try:
             response_text, provider_used = await self.ai_service.run_prompt_with_provider(
                 model.model_key, request_text,
