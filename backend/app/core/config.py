@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT_SECONDS: int = 10
     DB_POOL_RECYCLE_SECONDS: int = 1800
 
+    INTERNAL_API_KEY: str = ""
+
     MELIPAYAMAK_USERNAME: str = ""
     MELIPAYAMAK_PASSWORD: str = ""
     MELIPAYAMAK_FROM_NUMBER: str = ""

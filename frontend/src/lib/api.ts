@@ -192,3 +192,12 @@ export interface ExtractionSettings { extraction_prompt: string; extraction_mode
 export function getExtractionSettings(): Promise<ExtractionSettings> { return authRequest('GET', '/admin/extraction-settings') }
 export function updateExtractionSettings(body: ExtractionSettings): Promise<ExtractionSettings> { return authRequest('PUT', '/admin/extraction-settings', body) }
 export function resetExtractionSettings(): Promise<ExtractionSettings> { return authRequest('POST', '/admin/extraction-settings/reset') }
+
+export interface AdminReference { url: string; project_id: number; project_name: string; prompt_id: number; prompt: string; ai_model_id: number; ai_model: string; run_date: string }
+export interface AdminReferencesPage { items: AdminReference[]; page: number; page_size: number; total: number }
+export function listAdminReferences(params: { project_id?: number; ai_model_id?: number; search?: string; page?: number; page_size?: number } = {}): Promise<AdminReferencesPage> {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)) })
+  const suffix = query.toString() ? '?' + query.toString() : ''
+  return authRequest('GET', '/admin/references' + suffix)
+}

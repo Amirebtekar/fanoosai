@@ -1,0 +1,10 @@
+name = "fanoosai-telegram-report"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+[triggers]
+crons = ["30 4 * * *"] # 08:00 Asia/Tehran (UTC+3:30)
+
+[vars]
+BACKEND_URL = "https://api.example.com"
+PROJECT_ID = "1"

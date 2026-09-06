@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getAdminOverview, getErrorMessage, getExtractionSettings, listAdminModels, listAdminPrompts, resetExtractionSettings, setAdminPromptActive, setModelActive, syncGatewayModels, updateExtractionSettings, type AdminOverview, type AdminPromptRead, type AIModelRead, type ExtractionSettings } from '@/lib/api'
+import { getAdminOverview, getErrorMessage, getExtractionSettings, listAdminModels, listAdminPrompts, listAdminReferences, resetExtractionSettings, setAdminPromptActive, setModelActive, syncGatewayModels, updateExtractionSettings, type AdminOverview, type AdminPromptRead, type AdminReference, type AIModelRead, type ExtractionSettings } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -37,10 +37,12 @@ function AdminPanel() {
           <TabsTrigger value="models" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">مدل‌ها</TabsTrigger>
           <TabsTrigger value="prompts" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">پرامپت‌ها</TabsTrigger>
           <TabsTrigger value="extraction" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">تنظیمات استخراج</TabsTrigger>
+          <TabsTrigger value="references" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">رفرنس‌ها</TabsTrigger>
         </TabsList>
         <TabsContent value="models"><ModelsTab onLoaded={loadOverview} /></TabsContent>
         <TabsContent value="prompts"><PromptsTab onLoaded={loadOverview} /></TabsContent>
         <TabsContent value="extraction"><ExtractionTab /></TabsContent>
+        <TabsContent value="references"><ReferencesTab /></TabsContent>
       </Tabs>
     </div>
   )
@@ -288,6 +290,98 @@ function ExtractionTab() {
           <Button disabled={!dirty || saving} onClick={save} className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50">{saving ? 'در حال ذخیره...' : 'ذخیره'}</Button>
           <Button variant="outline" disabled={!dirty} onClick={() => setDraft(settings)} className="border-border font-bold">انصراف</Button>
           <Button variant="outline" onClick={reset} className="mr-auto border-border font-bold">بازگشت به پیش‌فرض</Button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function ReferencesTab() {
+  const [refs, setRefs] = useState<AdminReference[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const pageSize = 50
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const result = await listAdminReferences({ search: query, page, page_size: pageSize })
+      setRefs(result.items)
+      setTotal(result.total)
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'خطا در دریافت رفرنس‌ها'))
+    } finally {
+      setLoading(false)
+    }
+  }, [query, page])
+
+  useEffect(() => { void load() }, [load])
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm font-medium text-muted-text">رفرنس‌هایی که مدل‌ها هنگام جستجوی وب به آن‌ها استناد کرده‌اند.</p>
+        <form
+          className="flex gap-2"
+          onSubmit={e => { e.preventDefault(); setPage(1); setQuery(search.trim()) }}
+        >
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="جستجو در آدرس رفرنس..."
+            dir="ltr"
+            className="w-64 rounded-none border-2 border-border bg-card p-2 text-sm outline-none"
+            aria-label="جستجو در آدرس رفرنس"
+          />
+          <Button type="submit" className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold">جستجو</Button>
+        </form>
+      </div>
+
+      <div className="border-2 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)]">
+        {loading ? (
+          <div className="space-y-3 p-6">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 bg-accent" />)}</div>
+        ) : !refs.length ? (
+          <p className="p-6 text-sm font-medium text-muted-text">هنوز رفرنسی ثبت نشده است.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>رفرنس</TableHead>
+                <TableHead>پروژه</TableHead>
+                <TableHead>پرامپت</TableHead>
+                <TableHead>مدل</TableHead>
+                <TableHead>تاریخ</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {refs.map(ref => (
+                <TableRow key={`${ref.prompt_id}-${ref.ai_model_id}-${ref.url}`}>
+                  <TableCell className="max-w-72 truncate font-mono text-xs" dir="ltr">
+                    <a href={ref.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-primary" title={ref.url}>{ref.url}</a>
+                  </TableCell>
+                  <TableCell className="font-bold">{ref.project_name}</TableCell>
+                  <TableCell className="max-w-72 truncate text-sm text-muted-text" title={ref.prompt}>{ref.prompt}</TableCell>
+                  <TableCell>{ref.ai_model}</TableCell>
+                  <TableCell className="text-xs">{new Date(ref.run_date).toLocaleDateString('fa-IR')}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between text-sm font-bold">
+        <span>مجموع: {total.toLocaleString('fa-IR')}</span>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="border-border">قبلی</Button>
+          <span>صفحه {page.toLocaleString('fa-IR')} از {totalPages.toLocaleString('fa-IR')}</span>
+          <Button variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="border-border">بعدی</Button>
         </div>
       </div>
     </section>

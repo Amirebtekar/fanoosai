@@ -27,6 +27,7 @@ from app.admin.router import router as admin_router
 from app.organizations_router import router as organizations_router
 from app.analytics.router import router as analytics_router
 from app.analytics.extra_router import router as analytics_extra_router
+from app.internal.router import router as internal_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -130,6 +131,7 @@ app.include_router(admin_router)
 app.include_router(organizations_router)
 app.include_router(analytics_router)
 app.include_router(analytics_extra_router)
+app.include_router(internal_router)
 
 @app.get("/")
 async def root():

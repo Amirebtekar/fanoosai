@@ -1,4 +1,7 @@
 from typing import List
+import json
+from datetime import datetime
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -152,6 +155,92 @@ async def list_all_prompts(
         stmt = stmt.where(Prompt.text.ilike(term) | Project.name.ilike(term))
     prompts = (await session.execute(stmt)).scalars().all()
     return [_admin_prompt_read(p) for p in prompts]
+
+
+class AdminReferenceItem(BaseModel):
+    url: str
+    project_id: int
+    project_name: str
+    prompt_id: int
+    prompt: str
+    ai_model_id: int
+    ai_model: str
+    run_date: datetime
+
+
+class AdminReferencesPage(BaseModel):
+    items: List[AdminReferenceItem]
+    page: int
+    page_size: int
+    total: int
+
+
+@router.get("/references", response_model=AdminReferencesPage)
+async def admin_references(
+    project_id: int | None = Query(None, gt=0),
+    ai_model_id: int | None = Query(None, gt=0),
+    search: str = Query("", max_length=500, description="جستجو در آدرس رفرنس"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    _: UserTable = Depends(require_superuser),
+) -> AdminReferencesPage:
+    stmt = (
+        select(Prompt.id, Prompt.text, AIModel.id, AIModel.name, AIRun.created_at, AIRun.response_text, Project.id, Project.name)
+        .select_from(AIRun)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(AIModel, AIModel.id == AIRun.ai_model_id)
+        .join(Project, Project.id == Prompt.project_id)
+        .where(AIRun.status == "success", AIRun.response_text.is_not(None))
+        .order_by(AIRun.created_at.desc(), AIRun.id.desc())
+    )
+    if project_id is not None:
+        stmt = stmt.where(Prompt.project_id == project_id)
+    if ai_model_id is not None:
+        stmt = stmt.where(AIRun.ai_model_id == ai_model_id)
+
+    # ponytail: sources live in response JSON; normalize into a table if this scan becomes slow.
+    items = []
+    seen = set()
+    for (prompt_id_value, prompt_text, model_id, model_name, run_date, response_text,
+         proj_id, proj_name) in (await session.execute(stmt)).all():
+        try:
+            sources = json.loads(response_text).get("sources", [])
+        except (AttributeError, TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(sources, list):
+            continue
+        for url in sources:
+            if not isinstance(url, str):
+                continue
+            try:
+                parsed = urlsplit(url)
+            except ValueError:
+                continue
+            key = (url, prompt_id_value, model_id)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc or key in seen:
+                continue
+            if search.strip() and search.strip().lower() not in url.lower():
+                continue
+            seen.add(key)
+            items.append(AdminReferenceItem(
+                url=url,
+                project_id=proj_id,
+                project_name=proj_name,
+                prompt_id=prompt_id_value,
+                prompt=prompt_text,
+                ai_model_id=model_id,
+                ai_model=model_name,
+                run_date=run_date,
+            ))
+
+    start = (page - 1) * page_size
+    return AdminReferencesPage(
+        items=items[start:start + page_size],
+        page=page,
+        page_size=page_size,
+        total=len(items),
+    )
 
 
 @router.patch("/prompts/{prompt_id}/active", response_model=AdminPromptRead)
