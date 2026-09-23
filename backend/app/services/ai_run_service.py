@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.database.models import Prompt
-from app.infrastructure.run_queue import PromptRunJob, PromptRunQueue
+from app.infrastructure.run_queue import PromptRunQueue
 from app.repositories.ai_run_repository import AIRunRepository
 from app.repositories.system_settings_repository import (
     DOMAIN_INSTRUCTION_KEY,
@@ -100,10 +100,6 @@ class AIRunService:
             if source != "retry":
                 await self.run_repo.release_daily_run(prompt.id, model.id, run_date)
             await self.run_repo.alert_run_failure(prompt.id, f"{getattr(model, 'name', model.model_key)} execution failed: {exc}")
-            if self.retry_queue is not None and run_attempt < settings.REDIS_JOB_MAX_RETRIES:
-                await self._enqueue(self.retry_queue.enqueue_retry_in_one_hour, PromptRunJob(
-                    prompt.id, model.id, run_date.isoformat(), source="retry", run_attempt=run_attempt + 1,
-                ))
             return [self._result(run, model, error=str(exc))]
 
         run = await self.run_repo.create(
@@ -124,10 +120,6 @@ class AIRunService:
             )]
         except Exception as exc:
             await self.run_repo.update_extraction(run, "failed", str(exc))
-            if self.retry_queue is not None:
-                await self._enqueue(self.retry_queue.enqueue_extraction_retry_in_five_minutes, PromptRunJob(
-                    prompt.id, model.id, run_date.isoformat(), source="extraction_retry", ai_run_id=run.id,
-                ))
             return [self._result(run, model, error=str(exc))]
 
     async def retry_extraction(self, run_id: int, run_attempt: int = 1) -> None:
@@ -141,20 +133,7 @@ class AIRunService:
             await self.run_repo.alert_rank_changes(run.id)
             await self.run_repo.update_extraction(run, "completed")
         except Exception as exc:
-            exhausted = run_attempt >= settings.REDIS_JOB_MAX_RETRIES
-            await self.run_repo.update_extraction(run, "exhausted" if exhausted else "failed", str(exc))
-            if self.retry_queue is not None and not exhausted:
-                await self._enqueue(self.retry_queue.enqueue_extraction_retry_in_five_minutes, PromptRunJob(
-                    run.prompt_id, run.ai_model_id, self._run_date(None).isoformat(),
-                    source="extraction_retry", run_attempt=run_attempt + 1, ai_run_id=run.id,
-                ))
-
-    @staticmethod
-    async def _enqueue(enqueue, job: PromptRunJob) -> None:
-        try:
-            await enqueue(job)
-        except Exception:
-            logger.exception("retry_queue_unavailable", extra={"event_data": {"prompt_id": job.prompt_id, "ai_model_id": job.ai_model_id}})
+            await self.run_repo.update_extraction(run, "failed", str(exc))
 
     @staticmethod
     def _result(run, model, *, brands_found=0, new_brands=0, existing_brands=0, error=None):

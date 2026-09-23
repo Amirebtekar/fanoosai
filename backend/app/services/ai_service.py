@@ -98,21 +98,23 @@ class AIService:
             }
             payload["response_format"] = response_format
 
-        try:
-            body = await self._request(f"{base_url}/v1{endpoint}", payload, model_key)
-            provider_used = "primary"
-        except ValueError:
-            if not settings.AVALAI_API_KEY:
-                raise
-            fallback_payload = {**payload, "model": avalai_model_key(model_key)}
-            body = await self._request(
-                f"{settings.AVALAI_BASE_URL.rstrip('/')}{endpoint}",
-                fallback_payload,
-                model_key,
-                settings.AVALAI_API_KEY,
-            )
-            provider_used = "avalai"
-        return self._normalize_response(body), provider_used
+        if settings.AI_GATEWAY_ENABLED:
+            try:
+                body = await self._request(f"{base_url}/v1{endpoint}", payload, model_key)
+                return self._normalize_response(body), "primary"
+            except ValueError:
+                pass
+
+        if not settings.AVALAI_API_KEY:
+            raise ValueError("No AI provider enabled")
+        fallback_payload = {**payload, "model": avalai_model_key(model_key)}
+        body = await self._request(
+            f"{settings.AVALAI_BASE_URL.rstrip('/')}{endpoint}",
+            fallback_payload,
+            model_key,
+            settings.AVALAI_API_KEY,
+        )
+        return self._normalize_response(body), "avalai"
 
     async def _request(
         self,
@@ -121,40 +123,31 @@ class AIService:
         model_key: str,
         api_key: str = "",
     ) -> str:
-        for attempt in range(3):
-            started = __import__("time").perf_counter()
-            try:
-                session = await self._get_session()
-                request_kwargs = {"json": payload}
-                headers = {
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                }
-                if api_key:
-                    headers["Authorization"] = f"Bearer {api_key}"
-                request_kwargs["headers"] = headers
-                async with session.post(url, **request_kwargs) as response:
-                    body = await response.text()
-                    if response.status >= 500 or response.status == 429:
-                        raise aiohttp.ClientResponseError(
-                            response.request_info, response.history,
-                            status=response.status, message="retryable provider response",
-                        )
-                    if response.status >= 400:
-                        AI_REQUESTS.labels(model_key, "error").inc()
-                        raise ValueError("AI Gateway request failed")
-                    AI_REQUESTS.labels(model_key, "success").inc()
-                    return body
-            except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-                if attempt == 2:
+        started = __import__("time").perf_counter()
+        try:
+            session = await self._get_session()
+            request_kwargs = {"json": payload}
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            }
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            request_kwargs["headers"] = headers
+            async with session.post(url, **request_kwargs) as response:
+                body = await response.text()
+                if response.status >= 400:
                     AI_REQUESTS.labels(model_key, "error").inc()
-                    logger.exception("ai_provider_request_failed", extra={"event_data": {"provider": model_key}})
-                    raise ValueError("AI Gateway request failed after retries") from exc
-                await asyncio.sleep(2**attempt)
-            finally:
-                AI_DURATION.labels(model_key).observe(duration_seconds(started))
-        raise ValueError("AI Gateway request failed")
+                    raise ValueError(f"AI provider HTTP {response.status}")
+                AI_REQUESTS.labels(model_key, "success").inc()
+                return body
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            AI_REQUESTS.labels(model_key, "error").inc()
+            logger.exception("ai_provider_request_failed", extra={"event_data": {"provider": model_key}})
+            raise ValueError("AI provider request failed") from exc
+        finally:
+            AI_DURATION.labels(model_key).observe(duration_seconds(started))
 
     @staticmethod
     def _normalize_response(body: str) -> str:

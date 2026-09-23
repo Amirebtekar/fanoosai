@@ -1,5 +1,3 @@
-import asyncio
-
 import aiohttp
 
 from app.core.config import settings
@@ -21,19 +19,19 @@ class AIModelService:
 
     async def list_gateway_models(self) -> list[dict]:
         async with aiohttp.ClientSession() as session:
-            parspack, avalai = await asyncio.gather(
-                self._fetch_models(
-                    session,
-                    f"{settings.AI_GATEWAY_BASE_URL.rstrip('/')}/v1/models",
-                    settings.AI_GATEWAY_API_KEY,
-                    "AI Gateway",
-                ),
-                self._fetch_models(
-                    session,
-                    f"{settings.AVALAI_BASE_URL.rstrip('/')}/models",
-                    settings.AVALAI_API_KEY,
-                    "AvalAI",
-                ),
+            avalai = await self._fetch_models(
+                session,
+                f"{settings.AVALAI_BASE_URL.rstrip('/')}/models",
+                settings.AVALAI_API_KEY,
+                "AvalAI",
+            )
+            if not settings.AI_GATEWAY_ENABLED:
+                return self._normalize_gateway_models(avalai)
+            parspack = await self._fetch_models(
+                session,
+                f"{settings.AI_GATEWAY_BASE_URL.rstrip('/')}/v1/models",
+                settings.AI_GATEWAY_API_KEY,
+                "AI Gateway",
             )
         return self._common_gateway_models(parspack, avalai)
 

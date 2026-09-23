@@ -293,7 +293,7 @@ async def test_run_prompt_model_skips_inactive_model():
 
 
 @pytest.mark.asyncio
-async def test_failed_runs_retry_after_one_hour_up_to_three_total_attempts():
+async def test_failed_runs_do_not_auto_retry_to_avoid_extra_cost():
     queue = FakeRetryQueue()
     service = AIRunService(
         FakeRunRepository(), FailingAIService(), FakeExtractionService(), FakePersistenceService(), queue,
@@ -304,15 +304,9 @@ async def test_failed_runs_retry_after_one_hour_up_to_three_total_attempts():
         models=[SimpleNamespace(model=SimpleNamespace(id=1, name="model-a", model_key="model-a"))],
     )
 
-    await service.run_prompt_models(prompt, now=datetime(2026, 7, 17), source="manual")
-    first_retry = queue.jobs.pop()
-    assert (first_retry.source, first_retry.run_attempt) == ("retry", 2)
+    result = await service.run_prompt_models(prompt, now=datetime(2026, 7, 17), source="manual")
 
-    await service.run_prompt_model(prompt, 1, now=datetime(2026, 7, 17), source="retry", run_attempt=2)
-    second_retry = queue.jobs.pop()
-    assert (second_retry.source, second_retry.run_attempt) == ("retry", 3)
-
-    await service.run_prompt_model(prompt, 1, now=datetime(2026, 7, 17), source="retry", run_attempt=3)
+    assert result[0]["ai_run_status"] == "failed"
     assert queue.jobs == []
 
 
@@ -343,7 +337,7 @@ async def test_failed_manual_run_releases_claim_so_user_can_retry_same_day():
 
 
 @pytest.mark.asyncio
-async def test_failed_brand_extraction_retries_in_five_minutes_without_rerunning_the_model():
+async def test_failed_brand_extraction_does_not_auto_retry():
     queue = FakeRetryQueue()
     service = AIRunService(
         FakeRunRepository(), FakeAIService(), FailingExtractionService(), FakePersistenceService(), queue,
@@ -358,11 +352,11 @@ async def test_failed_brand_extraction_retries_in_five_minutes_without_rerunning
 
     assert result[0]["ai_run_status"] == "success"
     assert result[0]["extraction_status"] == "failed"
-    assert (queue.jobs[0].source, queue.jobs[0].ai_run_id) == ("extraction_retry", 1)
+    assert queue.jobs == []
 
 
 @pytest.mark.asyncio
-async def test_extraction_retry_stops_after_the_configured_attempt_limit(monkeypatch):
+async def test_extraction_retry_failure_does_not_enqueue_more():
     run = SimpleNamespace(
         id=4,
         prompt_id=7,
@@ -383,7 +377,7 @@ async def test_extraction_retry_stops_after_the_configured_attempt_limit(monkeyp
 
     await service.retry_extraction(4, run_attempt=3)
 
-    assert run.extraction_status == "exhausted"
+    assert run.extraction_status == "failed"
     assert queue.jobs == []
 
 

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
     AI_GATEWAY_BASE_URL: str = "https://my.parspack.com/api/aistudio/api"
     AI_GATEWAY_API_KEY: str = ""
+    AI_GATEWAY_ENABLED: bool = False
     AVALAI_BASE_URL: str = "https://api.avalai.ir/v1"
     AVALAI_API_KEY: str = ""
     BRAND_EXTRACTION_MODEL: str = "openai/gpt-4.1-mini"

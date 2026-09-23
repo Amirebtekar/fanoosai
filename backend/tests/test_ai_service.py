@@ -96,6 +96,13 @@ async def test_user_prompts_use_responses_web_search(monkeypatch):
         return session
 
     monkeypatch.setattr(AIService, "_get_session", staticmethod(get_session))
+    monkeypatch.setattr(ai_service_module, "settings", SimpleNamespace(
+        AI_GATEWAY_ENABLED=True,
+        AI_GATEWAY_BASE_URL="https://primary.example/api",
+        AI_GATEWAY_API_KEY="primary-key",
+        AVALAI_BASE_URL="https://api.avalai.ir/v1",
+        AVALAI_API_KEY="fallback-key",
+    ))
 
     _, provider_used = await AIService().run_prompt_with_provider("google/gemini", "latest news")
 
@@ -212,7 +219,7 @@ def test_normalizes_responses_api_output_text():
 
 
 @pytest.mark.asyncio
-async def test_falls_back_to_avalai_after_primary_retries(monkeypatch):
+async def test_falls_back_to_avalai_after_one_primary_attempt(monkeypatch):
     class Response:
         request_info = None
         history = ()
@@ -246,12 +253,9 @@ async def test_falls_back_to_avalai_after_primary_retries(monkeypatch):
     async def get_session():
         return session
 
-    async def no_sleep(_):
-        return None
-
     monkeypatch.setattr(AIService, "_get_session", staticmethod(get_session))
-    monkeypatch.setattr(ai_service_module.asyncio, "sleep", no_sleep)
     monkeypatch.setattr(ai_service_module, "settings", SimpleNamespace(
+        AI_GATEWAY_ENABLED=True,
         AI_GATEWAY_BASE_URL="https://primary.example/api",
         AI_GATEWAY_API_KEY="primary-key",
         AVALAI_BASE_URL="https://api.avalai.ir/v1",
@@ -264,10 +268,54 @@ async def test_falls_back_to_avalai_after_primary_retries(monkeypatch):
 
     assert provider_used == "avalai"
     assert json.loads(response)["choices"][0]["message"]["content"] == "fallback"
-    assert len(session.calls) == 4
+    assert len(session.calls) == 2
     fallback_url, fallback_payload, fallback_headers = session.calls[-1]
     assert fallback_url == "https://api.avalai.ir/v1/responses"
     assert fallback_payload["model"] == "claude-sonnet-4-6"
     assert fallback_payload["tools"] == [{"type": "web_search"}]
     assert fallback_headers["Authorization"] == "Bearer fallback-key"
     assert fallback_headers["User-Agent"].startswith("Mozilla/5.0")
+
+
+@pytest.mark.asyncio
+async def test_skips_primary_and_calls_avalai_once_when_gateway_disabled(monkeypatch):
+    class Response:
+        status = 200
+
+        async def text(self):
+            return '{"output":[]}'
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    class Session:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, json, headers=None):
+            self.calls.append((url, json, headers))
+            return Response()
+
+    session = Session()
+
+    async def get_session():
+        return session
+
+    monkeypatch.setattr(AIService, "_get_session", staticmethod(get_session))
+    monkeypatch.setattr(ai_service_module, "settings", SimpleNamespace(
+        AI_GATEWAY_ENABLED=False,
+        AI_GATEWAY_BASE_URL="https://primary.example/api",
+        AI_GATEWAY_API_KEY="primary-key",
+        AVALAI_BASE_URL="https://api.avalai.ir/v1",
+        AVALAI_API_KEY="fallback-key",
+    ))
+
+    _, provider_used = await AIService().run_prompt_with_provider("google/gemini", "latest news")
+
+    assert provider_used == "avalai"
+    assert len(session.calls) == 1
+    assert "primary.example" not in session.calls[0][0]
+    assert "avalai.ir" in session.calls[0][0]
