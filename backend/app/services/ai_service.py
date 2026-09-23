@@ -52,7 +52,11 @@ class AIService:
                 ttl_dns_cache=300,
                 ssl=ssl.create_default_context(cafile=certifi.where()),
             )
-            headers = {"Accept": "application/json", "Content-Type": "application/json"}
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            }
             if settings.AI_GATEWAY_API_KEY:
                 headers["Authorization"] = f"Bearer {settings.AI_GATEWAY_API_KEY}"
             cls._session = aiohttp.ClientSession(timeout=timeout, connector=connector, headers=headers)
@@ -122,8 +126,14 @@ class AIService:
             try:
                 session = await self._get_session()
                 request_kwargs = {"json": payload}
+                headers = {
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                }
                 if api_key:
-                    request_kwargs["headers"] = {"Authorization": f"Bearer {api_key}"}
+                    headers["Authorization"] = f"Bearer {api_key}"
+                request_kwargs["headers"] = headers
                 async with session.post(url, **request_kwargs) as response:
                     body = await response.text()
                     if response.status >= 500 or response.status == 429:
