@@ -46,7 +46,7 @@ class AIService:
     @classmethod
     async def _get_session(cls) -> aiohttp.ClientSession:
         if cls._session is None or cls._session.closed:
-            timeout = aiohttp.ClientTimeout(total=60, connect=10, sock_read=50)
+            timeout = aiohttp.ClientTimeout(total=180, connect=15, sock_read=150)
             connector = aiohttp.TCPConnector(
                 limit=100,
                 ttl_dns_cache=300,
