@@ -28,20 +28,17 @@ async def test_run_route_can_target_one_model(monkeypatch):
 
     prompt_service.get_prompt = get_prompt
 
-    class RunService:
-        async def run_prompt_model(self, received_prompt, model_id):
-            return [(received_prompt, model_id)]
-
-        async def run_prompt_models(self, _prompt):
-            raise AssertionError("all-model path should not run")
+    background_tasks = SimpleNamespace(tasks=[], add_task=lambda fn, *args: background_tasks.tasks.append((fn, args)))
 
     result = await prompt_router.run_prompt(
         project_id=10,
         prompt_id=31,
         ai_model_id=94,
         prompt_service=prompt_service,
-        run_service=RunService(),
         current_user=SimpleNamespace(id=7),
+        background_tasks=background_tasks,
     )
 
-    assert result == [(prompt, 94)]
+    assert len(result) == 1
+    assert result[0].ai_run_status == "queued"
+    assert background_tasks.tasks == [(prompt_router._execute_prompt_run, (31, 94))]

@@ -1,10 +1,12 @@
+import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.dependencies import get_session
+from app.database.connection import async_session_maker
 from app.database.models import Prompt, UserTable
 from app.repositories.prompt_repository import PromptRepository
 from app.repositories.project_repository import ProjectRepository
@@ -21,6 +23,8 @@ from app.projects.schema import PromptCreate, PromptRead
 from app.projects.ai_models_schema import AIModelRead
 from app.projects.ai_runs_schema import AIRunResult, PromptModelExecutionAvailability
 from app.auth.fastapi_users import fastapi_users
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/prompts", tags=["prompts"])
 
@@ -211,13 +215,50 @@ async def remove_prompt_model(
             detail=str(e),
         )
 
+async def _execute_prompt_run(prompt_id: int, ai_model_id: int | None) -> None:
+    try:
+        async with async_session_maker() as session:
+            ai_service = AIService()
+            run_service = AIRunService(
+                AIRunRepository(session),
+                ai_service,
+                BrandExtractionService(ai_service, session),
+                BrandPersistenceService(session),
+                PromptRunQueue(get_redis()),
+                SystemSettingsRepository(session),
+            )
+            prompt = await PromptRepository(session).get_by_id(prompt_id)
+            if prompt is None or not prompt.is_active:
+                return
+            if ai_model_id is not None:
+                await run_service.run_prompt_model(prompt, ai_model_id, source="manual")
+            else:
+                await run_service.run_prompt_models(prompt, source="manual")
+    except Exception:
+        logger.exception("prompt_run_background_failed", extra={"event_data": {"prompt_id": prompt_id, "ai_model_id": ai_model_id}})
+
+
+def _queued_results(count: int) -> list[AIRunResult]:
+    return [
+        AIRunResult(
+            ai_run_id=0,
+            ai_run_status="queued",
+            extraction_status="pending",
+            brands_found=0,
+            new_brands=0,
+            existing_brands=0,
+        )
+        for _ in range(count)
+    ]
+
+
 @router.post("/{prompt_id}/run", response_model=List[AIRunResult])
 async def run_prompt(
     project_id: int,
     prompt_id: int,
+    background_tasks: BackgroundTasks,
     ai_model_id: int | None = Query(None, gt=0),
     prompt_service: PromptService = Depends(get_prompt_service),
-    run_service: AIRunService = Depends(get_ai_run_service),
     current_user: UserTable = Depends(get_current_user),
 ) -> list[AIRunResult]:
     try:
@@ -236,8 +277,10 @@ async def run_prompt(
             raise ValueError("هیچ مدل AI برای این Prompt انتخاب نشده است")
 
         if ai_model_id is not None:
-            return await run_service.run_prompt_model(prompt, ai_model_id)
-        return await run_service.run_prompt_models(prompt)
+            background_tasks.add_task(_execute_prompt_run, prompt_id, ai_model_id)
+            return _queued_results(1)
+        background_tasks.add_task(_execute_prompt_run, prompt_id, None)
+        return _queued_results(len(prompt.models))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

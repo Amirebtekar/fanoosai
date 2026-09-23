@@ -26,7 +26,9 @@ export function getErrorMessage(e: unknown, fallback: string): string {
       }
       if (Array.isArray(inner) && inner[0]?.msg) return inner[0].msg
     }
+    if (e.message && e.message !== '[object Object]') return e.message
   }
+  if (e instanceof Error && e.message) return e.message
   return fallback
 }
 

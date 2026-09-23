@@ -114,7 +114,7 @@ export function PromptManagement({ projectId }: { projectId: number }) {
           return <PromptCard key={prompt.id} prompt={prompt} allModels={models} runDisabled={!canRun} onRun={canRun ? () => update(async () => {
             const available = await getExecutionAvailability(projectId, prompt.id)
             return runAvailablePromptModels(available, modelId => runPrompt(projectId, prompt.id, modelId))
-          }, 'پرامپت اجرا شد', 'خطا در اجرای پرامپت') : undefined} onArchive={() => update(() => archivePrompt(projectId, prompt.id), 'پرامپت بایگانی شد', 'خطا در بایگانی')} onAddModel={modelId => update(() => addPromptModel(projectId, prompt.id, modelId), 'مدل اضافه شد', 'خطا در افزودن مدل')} onRemoveModel={modelId => update(() => removePromptModel(projectId, prompt.id, modelId), 'مدل حذف شد', 'خطا در حذف مدل')} onNavigate={() => navigate({ to: '/projects/' + projectId + '/prompts/' + prompt.id })} />
+          }, 'اجرا در صف قرار گرفت', 'خطا در اجرای پرامپت') : undefined} onArchive={() => update(() => archivePrompt(projectId, prompt.id), 'پرامپت بایگانی شد', 'خطا در بایگانی')} onAddModel={modelId => update(() => addPromptModel(projectId, prompt.id, modelId), 'مدل اضافه شد', 'خطا در افزودن مدل')} onRemoveModel={modelId => update(() => removePromptModel(projectId, prompt.id, modelId), 'مدل حذف شد', 'خطا در حذف مدل')} onNavigate={() => navigate({ to: '/projects/' + projectId + '/prompts/' + prompt.id })} />
         })}
         {!active.length && <p className="text-sm font-medium text-muted-text">پرامپت فعالی وجود ندارد.</p>}
       </div>
