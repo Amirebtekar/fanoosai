@@ -173,18 +173,28 @@ class AIService:
                     sources[url] = None
 
             if "output" in payload:
+                output_items = payload.get("output") or []
                 parts = [
                     part
-                    for item in payload["output"]
-                    if item.get("type") == "message"
-                    for part in item.get("content", [])
+                    for item in output_items
+                    if isinstance(item, dict) and item.get("type") == "message"
+                    for part in (item.get("content") or [])
+                    if isinstance(part, dict)
                 ]
-                for item in payload["output"]:
+                for item in output_items:
+                    if not isinstance(item, dict):
+                        continue
                     if item.get("type") == "web_search_call":
-                        for source in item.get("action", {}).get("sources", []):
-                            add_source(source.get("url"))
+                        action = item.get("action") or {}
+                        if not isinstance(action, dict):
+                            continue
+                        for source in action.get("sources") or []:
+                            if isinstance(source, dict):
+                                add_source(source.get("url"))
                 for part in parts:
-                    for annotation in part.get("annotations", []):
+                    for annotation in part.get("annotations") or []:
+                        if not isinstance(annotation, dict):
+                            continue
                         if annotation.get("type") == "url_citation":
                             add_source(annotation.get("url") or annotation.get("url_citation", {}).get("url"))
             elif "candidates" in payload:

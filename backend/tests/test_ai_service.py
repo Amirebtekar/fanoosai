@@ -168,6 +168,49 @@ def test_normalizes_unique_safe_web_sources():
     }
 
 
+def test_normalizes_when_web_search_sources_is_null():
+    response = AIService._normalize_response(json.dumps({
+        "output": [
+            {"type": "web_search_call", "action": {"sources": None, "query": "vps"}},
+            {
+                "type": "message",
+                "content": [{
+                    "type": "output_text",
+                    "text": "پاسخ نهایی",
+                    "annotations": [],
+                }],
+            },
+        ],
+    }))
+
+    assert json.loads(response) == {
+        "choices": [{"message": {"content": "پاسخ نهایی"}}],
+    }
+
+
+def test_normalizes_responses_api_output_text():
+    response = AIService._normalize_response(json.dumps({
+        "id": "resp_abc",
+        "output": [
+            {"type": "reasoning", "summary": []},
+            {"type": "web_search_call", "action": {"type": "search", "sources": None}},
+            {
+                "type": "message",
+                "content": [{
+                    "type": "output_text",
+                    "text": "خلاصه پاسخ",
+                    "annotations": [{"type": "url_citation", "url": "https://example.com/a"}],
+                }],
+            },
+        ],
+    }))
+
+    assert json.loads(response) == {
+        "choices": [{"message": {"content": "خلاصه پاسخ"}}],
+        "sources": ["https://example.com/a"],
+    }
+
+
 @pytest.mark.asyncio
 async def test_falls_back_to_avalai_after_primary_retries(monkeypatch):
     class Response:

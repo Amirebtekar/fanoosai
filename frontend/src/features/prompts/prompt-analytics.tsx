@@ -23,6 +23,15 @@ export function modelResponseText(responseText: string | null): string {
     const payload = JSON.parse(responseText)
     const openAIText = payload?.choices?.[0]?.message?.content
     if (typeof openAIText === 'string') return openAIText
+    const responsesText = Array.isArray(payload?.output)
+      ? payload.output
+          .filter((item: { type?: unknown; content?: unknown } | null) => item?.type === 'message' && Array.isArray(item.content))
+          .flatMap((item: { content: unknown[] }) => item.content)
+          .filter((part: { type?: unknown; text?: unknown } | null) => (part?.type === 'output_text' || part?.type == null) && typeof part?.text === 'string')
+          .map((part: { text?: unknown }) => part.text as string)
+          .join('')
+      : ''
+    if (responsesText) return responsesText
     const geminiText = payload?.candidates?.[0]?.content?.parts?.map((part: { text?: unknown } | null) => part?.text).filter((text: unknown) => typeof text === 'string').join('')
     if (geminiText) return geminiText
     const claudeText = Array.isArray(payload?.content)

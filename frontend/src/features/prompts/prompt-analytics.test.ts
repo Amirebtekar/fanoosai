@@ -20,6 +20,16 @@ describe('modelResponseText', () => {
       content: [{ type: 'text', text: '## پاسخ Claude' }, { type: 'tool_use', name: 'search' }],
     }))).toBe('## پاسخ Claude')
   })
+
+  it('extracts OpenAI Responses API output text', () => {
+    expect(modelResponseText(JSON.stringify({
+      id: 'resp_1',
+      output: [
+        { type: 'reasoning' },
+        { type: 'message', content: [{ type: 'output_text', text: 'پاسخ Responses' }] },
+      ],
+    }))).toBe('پاسخ Responses')
+  })
 })
 
 describe('defaultTrendSelection', () => {
