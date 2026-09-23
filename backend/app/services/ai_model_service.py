@@ -33,7 +33,7 @@ class AIModelService:
                 settings.AI_GATEWAY_API_KEY,
                 "AI Gateway",
             )
-        return self._common_gateway_models(parspack, avalai)
+        return self._normalize_gateway_models(avalai)
 
     @staticmethod
     async def _fetch_models(

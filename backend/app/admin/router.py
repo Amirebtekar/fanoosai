@@ -1,9 +1,11 @@
 from typing import List
+import csv
+import io
 import json
 from datetime import datetime
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -35,6 +37,18 @@ class AdminPromptRead(PromptRead):
     project_name: str = ""
 
 
+class AdminCostItem(BaseModel):
+    id: int
+    created_at: datetime
+    model: str
+    provider: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    cost_irt: float | None
+    status: str
+
+
 class AdminOverview(BaseModel):
     users: int
     projects: int
@@ -58,6 +72,19 @@ def _admin_prompt_read(prompt: Prompt) -> AdminPromptRead:
         models=[AIModelRead.model_validate(link.model) for link in prompt.models],
         project_name=prompt.project.name if prompt.project else "",
     )
+
+
+@router.get("/costs", response_model=List[AdminCostItem])
+async def admin_costs(
+    session: AsyncSession = Depends(get_session),
+    _: UserTable = Depends(require_superuser),
+) -> List[AdminCostItem]:
+    rows = (await session.execute(
+        select(AIRun.id, AIRun.created_at, AIModel.name, AIRun.provider_used, AIRun.prompt_tokens, AIRun.completion_tokens, AIRun.total_tokens, AIRun.cost_irt, AIRun.status)
+        .join(AIModel, AIModel.id == AIRun.ai_model_id)
+        .order_by(AIRun.created_at.desc())
+    )).all()
+    return [AdminCostItem(id=row[0], created_at=row[1], model=row[2], provider=row[3], prompt_tokens=row[4], completion_tokens=row[5], total_tokens=row[6], cost_irt=row[7], status=row[8]) for row in rows]
 
 
 @router.get("/overview", response_model=AdminOverview)
@@ -240,6 +267,50 @@ async def admin_references(
         page=page,
         page_size=page_size,
         total=len(items),
+    )
+
+
+@router.get("/references/export")
+async def export_admin_references(
+    session: AsyncSession = Depends(get_session),
+    _: UserTable = Depends(require_superuser),
+) -> Response:
+    stmt = (
+        select(Prompt.id, Prompt.text, AIModel.id, AIModel.name, AIRun.created_at, AIRun.response_text, Project.id, Project.name)
+        .select_from(AIRun)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(AIModel, AIModel.id == AIRun.ai_model_id)
+        .join(Project, Project.id == Prompt.project_id)
+        .where(AIRun.status == "success", AIRun.response_text.is_not(None))
+        .order_by(AIRun.created_at.desc(), AIRun.id.desc())
+    )
+    rows = []
+    seen = set()
+    for prompt_id_value, prompt_text, model_id, model_name, run_date, response_text, proj_id, proj_name in (await session.execute(stmt)).all():
+        try:
+            sources = json.loads(response_text).get("sources", [])
+        except (AttributeError, TypeError, json.JSONDecodeError):
+            continue
+        for url in sources if isinstance(sources, list) else []:
+            if not isinstance(url, str):
+                continue
+            try:
+                parsed = urlsplit(url)
+            except ValueError:
+                continue
+            key = (url, prompt_id_value, model_id)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc or key in seen:
+                continue
+            seen.add(key)
+            rows.append([url, proj_name, prompt_text, model_name, run_date.isoformat()])
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["URL", "Project", "Prompt", "Model", "Run date"])
+    writer.writerows(rows)
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=references.csv"},
     )
 
 

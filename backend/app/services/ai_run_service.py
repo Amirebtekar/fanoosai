@@ -89,9 +89,10 @@ class AIRunService:
             domain_instruction = await get_setting(self.system_settings.session, DOMAIN_INSTRUCTION_KEY, DOMAIN_FORMAT_INSTRUCTION)
         request_text = f"{prompt.text}\n\n{domain_instruction}"
         try:
-            response_text, provider_used = await self.ai_service.run_prompt_with_provider(
-                model.model_key, request_text,
-            )
+                response_text, provider_used = await self.ai_service.run_prompt_with_provider(
+                    model.model_key, request_text,
+                )
+                usage = self.ai_service.last_usage
         except Exception as exc:
             run = await self.run_repo.create(
                 prompt_id=prompt.id, ai_model_id=model.id, request_text=request_text,
@@ -104,7 +105,7 @@ class AIRunService:
 
         run = await self.run_repo.create(
             prompt_id=prompt.id, ai_model_id=model.id, request_text=request_text,
-            response_text=response_text, status="success", provider_used=provider_used,
+            response_text=response_text, status="success", provider_used=provider_used, usage=usage,
         )
         if source != "retry":
             await self.run_repo.complete_daily_run(prompt.id, model.id, run_date)

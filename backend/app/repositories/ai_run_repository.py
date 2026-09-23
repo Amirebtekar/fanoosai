@@ -22,6 +22,7 @@ class AIRunRepository:
         status: str = "failed",
         error_message: str | None = None,
         provider_used: str | None = None,
+        usage: dict | None = None,
     ) -> AIRun:
         now = datetime.now(timezone.utc)
         run = AIRun(
@@ -31,6 +32,10 @@ class AIRunRepository:
             response_text=response_text,
             status=status,
             provider_used=provider_used,
+            prompt_tokens=(usage or {}).get("prompt_tokens"),
+            completion_tokens=(usage or {}).get("completion_tokens"),
+            total_tokens=(usage or {}).get("total_tokens"),
+            cost_irt=(usage or {}).get("cost_irt"),
             extraction_status="pending" if status == "success" else "failed",
             error_message=error_message,
             completed_at=now if status != "running" else None,

@@ -42,6 +42,7 @@ def avalai_model_key(model_key: str) -> str:
 
 class AIService:
     _session: aiohttp.ClientSession | None = None
+    last_usage: dict = {}
 
     @classmethod
     async def _get_session(cls) -> aiohttp.ClientSession:
@@ -68,7 +69,7 @@ class AIService:
         prompt_text: str,
         response_format: dict | None = None,
     ) -> str:
-        response, _ = await self.run_prompt_with_provider(model_key, prompt_text, response_format)
+        response, _, _ = await self.run_prompt_with_provider(model_key, prompt_text, response_format)
         return response
 
     async def run_prompt_with_provider(
@@ -101,6 +102,7 @@ class AIService:
         if settings.AI_GATEWAY_ENABLED:
             try:
                 body = await self._request(f"{base_url}/v1{endpoint}", payload, model_key)
+                self.last_usage = self._usage(body)
                 return self._normalize_response(body), "primary"
             except ValueError:
                 pass
@@ -114,7 +116,23 @@ class AIService:
             model_key,
             settings.AVALAI_API_KEY,
         )
+        self.last_usage = self._usage(body)
         return self._normalize_response(body), "avalai"
+
+    @staticmethod
+    def _usage(body: str) -> dict:
+        try:
+            payload = json.loads(body)
+            usage = payload.get("usage") or {}
+            cost = payload.get("estimated_cost") or {}
+            return {
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+                "cost_irt": cost.get("irt"),
+            }
+        except (TypeError, json.JSONDecodeError):
+            return {}
 
     async def _request(
         self,

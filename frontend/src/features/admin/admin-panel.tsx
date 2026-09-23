@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getAdminOverview, getErrorMessage, getExtractionSettings, listAdminModels, listAdminPrompts, listAdminReferences, resetExtractionSettings, setAdminPromptActive, setModelActive, syncGatewayModels, updateExtractionSettings, type AdminOverview, type AdminPromptRead, type AdminReference, type AIModelRead, type ExtractionSettings } from '@/lib/api'
+import { getAdminCosts, getAdminOverview, getErrorMessage, getExtractionSettings, listAdminModels, listAdminPrompts, listAdminReferences, resetExtractionSettings, setAdminPromptActive, setModelActive, syncGatewayModels, updateExtractionSettings, type AdminCostItem, type AdminOverview, type AdminPromptRead, type AdminReference, type AIModelRead, type ExtractionSettings } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -38,11 +38,13 @@ function AdminPanel() {
           <TabsTrigger value="prompts" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">پرامپت‌ها</TabsTrigger>
           <TabsTrigger value="extraction" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">تنظیمات استخراج</TabsTrigger>
           <TabsTrigger value="references" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">رفرنس‌ها</TabsTrigger>
+          <TabsTrigger value="costs" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">هزینه‌ها</TabsTrigger>
         </TabsList>
         <TabsContent value="models"><ModelsTab onLoaded={loadOverview} /></TabsContent>
         <TabsContent value="prompts"><PromptsTab onLoaded={loadOverview} /></TabsContent>
         <TabsContent value="extraction"><ExtractionTab /></TabsContent>
         <TabsContent value="references"><ReferencesTab /></TabsContent>
+        <TabsContent value="costs"><CostsTab /></TabsContent>
       </Tabs>
     </div>
   )
@@ -222,10 +224,16 @@ function ExtractionTab() {
   const [draft, setDraft] = useState<ExtractionSettings>(EMPTY_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [models, setModels] = useState<AIModelRead[]>([])
 
   const apply = useCallback((value: ExtractionSettings) => { setSettings(value); setDraft(value) }, [])
 
-  useEffect(() => { void Promise.resolve().then(() => getExtractionSettings().then(apply).catch(e => toast.error(getErrorMessage(e, 'خطا در دریافت تنظیمات')))).finally(() => setLoading(false)) }, [apply])
+  useEffect(() => {
+    void Promise.all([getExtractionSettings(), listAdminModels()])
+      .then(([value, availableModels]) => { apply(value); setModels(availableModels.filter(model => model.is_active)) })
+      .catch(e => toast.error(getErrorMessage(e, 'خطا در دریافت تنظیمات')))
+      .finally(() => setLoading(false))
+  }, [apply])
 
   const dirty = JSON.stringify(settings) !== JSON.stringify(draft)
 
@@ -270,8 +278,11 @@ function ExtractionTab() {
       <div className="space-y-5 border-2 border-border bg-card p-6 shadow-[6px_6px_0_var(--color-shadow)]">
         <label className="block space-y-2">
           <span className="text-sm font-black">مدل تحلیل‌گر (رتبه‌بندی پاسخ)</span>
-          <input type="text" value={draft.extraction_model} onChange={e => setDraft(current => ({ ...current, extraction_model: e.target.value }))} dir="ltr" placeholder="openai/gpt-4.1-mini" className="w-full rounded-none border-3 border-border p-2.5 font-mono text-sm outline-none" />
-          <span className="block text-xs text-muted-text">کلید مدل در گیت‌وی؛ مثال: openai/gpt-4.1-mini</span>
+          <select value={draft.extraction_model} onChange={e => setDraft(current => ({ ...current, extraction_model: e.target.value }))} dir="ltr" className="w-full rounded-none border-3 border-border bg-card p-2.5 font-mono text-sm outline-none">
+            <option value="" disabled>مدل را انتخاب کنید</option>
+            {models.map(model => <option key={model.id} value={model.model_key}>{model.model_key}</option>)}
+          </select>
+          <span className="block text-xs text-muted-text">مدل تحلیل‌گر را از مدل‌های فعال انتخاب کنید.</span>
         </label>
 
         <label className="block space-y-2">
@@ -294,6 +305,20 @@ function ExtractionTab() {
       </div>
     </section>
   )
+}
+
+function CostsTab() {
+  const [items, setItems] = useState<AdminCostItem[]>([])
+  useEffect(() => { void getAdminCosts().then(setItems).catch(e => toast.error(getErrorMessage(e, 'خطا در دریافت هزینه‌ها'))) }, [])
+  const total = items.reduce((sum, item) => sum + (item.cost_irt || 0), 0)
+  return <section className="space-y-4">
+    <div className="border-2 border-border bg-card p-4 font-bold">مجموع هزینه: {total.toLocaleString('fa-IR')} تومان</div>
+    <div className="overflow-x-auto border-2 border-border bg-card">
+      <Table><TableHeader><TableRow><TableHead>زمان</TableHead><TableHead>مدل</TableHead><TableHead>ارائه‌دهنده</TableHead><TableHead>توکن ورودی</TableHead><TableHead>توکن خروجی</TableHead><TableHead>مجموع توکن</TableHead><TableHead>هزینه</TableHead><TableHead>وضعیت</TableHead></TableRow></TableHeader><TableBody>
+        {items.map(item => <TableRow key={item.id}><TableCell className="text-xs">{new Date(item.created_at).toLocaleString('fa-IR')}</TableCell><TableCell dir="ltr">{item.model}</TableCell><TableCell>{item.provider || '-'}</TableCell><TableCell>{(item.prompt_tokens || 0).toLocaleString('fa-IR')}</TableCell><TableCell>{(item.completion_tokens || 0).toLocaleString('fa-IR')}</TableCell><TableCell>{(item.total_tokens || 0).toLocaleString('fa-IR')}</TableCell><TableCell>{item.cost_irt == null ? '-' : `${item.cost_irt.toLocaleString('fa-IR')} تومان`}</TableCell><TableCell>{item.status}</TableCell></TableRow>)}
+      </TableBody></Table>
+    </div>
+  </section>
 }
 
 function ReferencesTab() {

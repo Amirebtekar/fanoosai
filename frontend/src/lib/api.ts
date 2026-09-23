@@ -175,10 +175,12 @@ export function logout(): Promise<void> { return authRequest('POST', '/auth/jwt/
 
 // --- Admin Panel ---
 export interface AdminOverview { users: number; projects: number; prompts_active: number; prompts_archived: number; models_active: number; models_inactive: number; runs_total: number; runs_failed: number }
+export interface AdminCostItem { id: number; created_at: string; model: string; provider?: string | null; prompt_tokens?: number | null; completion_tokens?: number | null; total_tokens?: number | null; cost_irt?: number | null; status: string }
 export interface AdminPromptRead extends PromptRead { project_name: string }
 export interface ModelHealthStats { total_runs: number; failed_runs: number; last_run?: string | null }
 
 export function getAdminOverview(): Promise<AdminOverview> { return authRequest('GET', '/admin/overview') }
+export function getAdminCosts(): Promise<AdminCostItem[]> { return authRequest('GET', '/admin/costs') }
 export function listAdminPrompts(params: { include_archived?: boolean; search?: string } = {}): Promise<AdminPromptRead[]> {
   const query = new URLSearchParams()
   if (params.include_archived) query.set('include_archived', 'true')
