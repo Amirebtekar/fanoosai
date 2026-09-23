@@ -85,7 +85,7 @@ async def test_user_prompts_use_responses_web_search(monkeypatch):
             return None
 
     class Session:
-        def post(self, url, json):
+        def post(self, url, json, headers=None):
             self.url = url
             self.payload = json
             return Response()
@@ -226,4 +226,5 @@ async def test_falls_back_to_avalai_after_primary_retries(monkeypatch):
     assert fallback_url == "https://api.avalai.ir/v1/responses"
     assert fallback_payload["model"] == "claude-sonnet-4-6"
     assert fallback_payload["tools"] == [{"type": "web_search"}]
-    assert fallback_headers == {"Authorization": "Bearer fallback-key"}
+    assert fallback_headers["Authorization"] == "Bearer fallback-key"
+    assert fallback_headers["User-Agent"].startswith("Mozilla/5.0")

@@ -79,6 +79,8 @@ class AIRunService:
         run_date = self._run_date(now)
         if source not in {"manual", "scheduled", "retry"}:
             raise ValueError("Invalid run source")
+        if not getattr(model, "is_active", True):
+            return []
         if source != "retry" and not await self.run_repo.claim_daily_run(prompt.id, model.id, run_date, source):
             return []
         domain_instruction = DOMAIN_FORMAT_INSTRUCTION

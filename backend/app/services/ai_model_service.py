@@ -5,6 +5,7 @@ import aiohttp
 from app.core.config import settings
 from app.database.models import AIModel
 from app.repositories.ai_model_repository import AIModelRepository
+from app.services.ai_service import avalai_model_key
 
 
 class AIModelService:
@@ -53,7 +54,17 @@ class AIModelService:
 
     @classmethod
     def _common_gateway_models(cls, parspack: dict, avalai: dict) -> list[dict]:
-        return cls._normalize_gateway_models(parspack)
+        parspack_rows = cls._normalize_gateway_models(parspack)
+        avalai_keys = {
+            row["model_key"]
+            for row in cls._normalize_gateway_models(avalai)
+        }
+        return [
+            row
+            for row in parspack_rows
+            if row["model_key"] in avalai_keys
+            or avalai_model_key(row["model_key"]) in avalai_keys
+        ]
 
     @staticmethod
     def _normalize_gateway_models(payload: dict) -> list[dict]:

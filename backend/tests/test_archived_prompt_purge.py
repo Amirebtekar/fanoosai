@@ -11,7 +11,7 @@ class Session:
         self.statements = []
         self.committed = False
 
-    async def execute(self, statement):
+    async def execute(self, statement, params=None):
         self.statements.append(statement)
         return type("Result", (), {"rowcount": 1})()
 
@@ -31,5 +31,6 @@ async def test_purge_removes_expired_archived_prompt_and_its_data():
     assert "DELETE FROM ai_runs" in sql
     assert "DELETE FROM prompt_models" in sql
     assert "DELETE FROM daily_prompt_runs" in sql
+    assert "DELETE FROM prompt_revisions" in sql
     assert "DELETE FROM prompts" in sql
     assert session.committed

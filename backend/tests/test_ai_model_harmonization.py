@@ -15,7 +15,7 @@ def test_avalai_model_key_normalizes_provider_prefix_and_claude_version():
     assert avalai_model_key("x-ai/grok-4.20") == "grok-4.20-reasoning"
 
 
-def test_harmonization_uses_primary_gateway_models():
+def test_harmonization_keeps_only_models_available_in_both_gateways():
     parspack = {"data": [
         {"id": "openai/gpt-5.1-chat", "owned_by": "OpenAI"},
         {"id": "anthropic/claude-sonnet-4.6", "owned_by": "Anthropic"},
@@ -33,6 +33,7 @@ def test_harmonization_uses_primary_gateway_models():
         {"id": "grok-4-fast-reasoning", "owned_by": "xai"},
         {"id": "grok-4", "owned_by": "xai"},
         {"id": "grok-3", "owned_by": "xai"},
+        {"id": "grok-4.20-multi-agent", "owned_by": "xai"},
         {"id": "fallback-only", "owned_by": "other"},
     ]}
 
@@ -46,17 +47,25 @@ def test_harmonization_uses_primary_gateway_models():
         "x-ai/grok-4",
         "x-ai/grok-3",
         "x-ai/grok-4.20-multi-agent",
-        "x-ai/primary-only",
     ]
 
 
-def test_harmonization_keeps_primary_model_when_fallback_lacks_it():
+def test_harmonization_excludes_primary_models_missing_from_fallback():
     rows = AIModelService._common_gateway_models(
         {"data": [{"id": "google/gemini-3.1-pro-preview", "owned_by": "Google"}]},
         {"data": []},
     )
 
-    assert [row["model_key"] for row in rows] == ["google/gemini-3.1-pro-preview"]
+    assert rows == []
+
+
+def test_harmonization_excludes_unmatched_primary_model():
+    rows = AIModelService._common_gateway_models(
+        {"data": [{"id": "x-ai/grok-4", "owned_by": "xAI"}]},
+        {"data": [{"id": "grok-4-fast-reasoning", "owned_by": "xai"}]},
+    )
+
+    assert rows == []
 
 
 def test_harmonization_uses_canonical_model_key_for_display_name():
