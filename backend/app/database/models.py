@@ -17,8 +17,8 @@ class AIModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
-    prompts: Mapped[list["PromptModel"]] = relationship("PromptModel", back_populates="model")
-    runs: Mapped[list["AIRun"]] = relationship("AIRun", back_populates="model")
+    prompts: Mapped[list["PromptModel"]] = relationship("PromptModel", back_populates="model", cascade="all, delete-orphan", passive_deletes=True)
+    runs: Mapped[list["AIRun"]] = relationship("AIRun", back_populates="model", cascade="all, delete-orphan", passive_deletes=True)
 
 
 
@@ -54,7 +54,7 @@ class AIRun(Base):
         
     prompt: Mapped["Prompt"] = relationship("Prompt", back_populates="runs")
     model: Mapped["AIModel"] = relationship("AIModel", back_populates="runs")
-    brand_links: Mapped[list["RunBrand"]] = relationship("RunBrand", back_populates="ai_run")
+    brand_links: Mapped[list["RunBrand"]] = relationship("RunBrand", back_populates="ai_run", cascade="all, delete-orphan", passive_deletes=True)
 
 
 class DailyPromptRun(Base):
@@ -129,8 +129,8 @@ class Prompt(Base):
         
     # Relationship to project
     project: Mapped[Project] = relationship("Project", back_populates="prompts")
-    models: Mapped[list["PromptModel"]] = relationship("PromptModel", back_populates="prompt")
-    runs: Mapped[list["AIRun"]] = relationship("AIRun", back_populates="prompt")
+    models: Mapped[list["PromptModel"]] = relationship("PromptModel", back_populates="prompt", cascade="all, delete-orphan", passive_deletes=True)
+    runs: Mapped[list["AIRun"]] = relationship("AIRun", back_populates="prompt", cascade="all, delete-orphan", passive_deletes=True)
 
 
 class ProjectBrand(Base):
