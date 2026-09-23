@@ -33,19 +33,23 @@ class AIModelRepository:
         synced = []
         now = datetime.now(timezone.utc)
         for row in rows:
-            model = existing.get(row["model_key"])
-            if model:
-                model.name = row["name"]
-                model.provider = row["provider"]
-                model.is_active = True
-                model.updated_at = now
+            aliases = {row["model_key"], f"openai/{row['model_key']}"}
+            matches = [model for key, model in existing.items() if key in aliases or key.rsplit('/', 1)[-1] == row["model_key"]]
+            if matches:
+                for model in matches:
+                    model.name = row["name"]
+                    model.provider = row["provider"]
+                    model.is_active = True
+                    model.updated_at = now
+                synced.extend(matches)
             else:
                 model = AIModel(**row, is_active=True, updated_at=now)
                 self.session.add(model)
-            synced.append(model)
+                synced.append(model)
 
+        available_keys = {row["model_key"] for row in rows}
         for model_key, model in existing.items():
-            if model_key not in keys:
+            if model_key not in available_keys and model_key.rsplit('/', 1)[-1] not in available_keys:
                 model.is_active = False
 
         await self.session.commit()

@@ -35,7 +35,8 @@ async def sync_gateway_models(
     _: UserTable = Depends(fastapi_users.current_user(active=True, superuser=True)),
 ) -> List[AIModelRead]:
     try:
-        models = await service.sync_gateway_models()
+        await service.sync_gateway_models()
+        models = (await service.repo.session.execute(select(AIModel).order_by(AIModel.name))).scalars().all()
         return [AIModelRead.model_validate(m) for m in models]
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))

@@ -69,7 +69,7 @@ class AIService:
         prompt_text: str,
         response_format: dict | None = None,
     ) -> str:
-        response, _, _ = await self.run_prompt_with_provider(model_key, prompt_text, response_format)
+        response, _ = await self.run_prompt_with_provider(model_key, prompt_text, response_format)
         return response
 
     async def run_prompt_with_provider(
@@ -95,7 +95,6 @@ class AIService:
                 "model": model_key,
                 "messages": [{"role": "user", "content": prompt_text}],
                 "temperature": 0.7,
-                "max_tokens": 5000,
             }
             payload["response_format"] = response_format
 

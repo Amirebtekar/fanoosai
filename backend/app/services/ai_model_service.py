@@ -25,14 +25,6 @@ class AIModelService:
                 settings.AVALAI_API_KEY,
                 "AvalAI",
             )
-            if not settings.AI_GATEWAY_ENABLED:
-                return self._normalize_gateway_models(avalai)
-            parspack = await self._fetch_models(
-                session,
-                f"{settings.AI_GATEWAY_BASE_URL.rstrip('/')}/v1/models",
-                settings.AI_GATEWAY_API_KEY,
-                "AI Gateway",
-            )
         return self._normalize_gateway_models(avalai)
 
     @staticmethod
@@ -42,7 +34,10 @@ class AIModelService:
         api_key: str,
         provider: str,
     ) -> dict:
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0",
+        }
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         async with session.get(url, headers=headers, timeout=20) as response:
