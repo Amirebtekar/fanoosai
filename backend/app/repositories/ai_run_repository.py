@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
@@ -106,6 +106,19 @@ class AIRunRepository:
                 DailyPromptRun.run_date == run_date,
             )
             .values(status="completed")
+        )
+        await self.session.commit()
+
+    async def release_daily_run(
+        self, prompt_id: int, ai_model_id: int, run_date: date
+    ) -> None:
+        await self.session.execute(
+            delete(DailyPromptRun).where(
+                DailyPromptRun.prompt_id == prompt_id,
+                DailyPromptRun.ai_model_id == ai_model_id,
+                DailyPromptRun.run_date == run_date,
+                DailyPromptRun.status == "claimed",
+            )
         )
         await self.session.commit()
 

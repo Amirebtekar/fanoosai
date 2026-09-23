@@ -13,6 +13,7 @@ class FakeRunRepository:
         self.created = []
         self.claim_sources = {}
         self.completed_claims = []
+        self.released_claims = []
 
     async def claim_daily_run(self, prompt_id, ai_model_id, run_date, source):
         key = (prompt_id, ai_model_id, run_date)
@@ -31,6 +32,12 @@ class FakeRunRepository:
 
     async def complete_daily_run(self, prompt_id, ai_model_id, run_date):
         self.completed_claims.append((prompt_id, ai_model_id, run_date))
+
+    async def release_daily_run(self, prompt_id, ai_model_id, run_date):
+        key = (prompt_id, ai_model_id, run_date)
+        self.released_claims.append(key)
+        self.claims.discard(key)
+        self.claim_sources.pop(key, None)
 
     async def create(self, **kwargs):
         run = SimpleNamespace(
@@ -307,6 +314,32 @@ async def test_failed_runs_retry_after_one_hour_up_to_three_total_attempts():
 
     await service.run_prompt_model(prompt, 1, now=datetime(2026, 7, 17), source="retry", run_attempt=3)
     assert queue.jobs == []
+
+
+@pytest.mark.asyncio
+async def test_failed_manual_run_releases_claim_so_user_can_retry_same_day():
+    repository = FakeRunRepository()
+    prompt = SimpleNamespace(
+        id=7,
+        text="test prompt",
+        models=[SimpleNamespace(model=SimpleNamespace(id=1, name="model-a", model_key="model-a"))],
+    )
+    service = AIRunService(
+        repository, FailingAIService(), FakeExtractionService(), FakePersistenceService(),
+    )
+    today = datetime(2026, 7, 17)
+
+    first = await service.run_prompt_model(prompt, 1, now=today, source="manual")
+    assert first[0]["ai_run_status"] == "failed"
+    assert repository.released_claims == [(7, 1, today.date())]
+    assert repository.completed_claims == []
+
+    availability = await service.execution_availability(prompt, now=today)
+    assert availability[0]["can_run"] is True
+
+    second = await service.run_prompt_model(prompt, 1, now=today, source="manual")
+    assert len(second) == 1
+    assert len(repository.created) == 2
 
 
 @pytest.mark.asyncio

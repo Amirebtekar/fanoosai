@@ -98,7 +98,7 @@ class AIRunService:
                 status="failed", error_message=str(exc),
             )
             if source != "retry":
-                await self.run_repo.complete_daily_run(prompt.id, model.id, run_date)
+                await self.run_repo.release_daily_run(prompt.id, model.id, run_date)
             await self.run_repo.alert_run_failure(prompt.id, f"{getattr(model, 'name', model.model_key)} execution failed: {exc}")
             if self.retry_queue is not None and run_attempt < settings.REDIS_JOB_MAX_RETRIES:
                 await self._enqueue(self.retry_queue.enqueue_retry_in_one_hour, PromptRunJob(
