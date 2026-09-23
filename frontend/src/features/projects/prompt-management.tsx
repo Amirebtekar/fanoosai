@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { AddModelMenu, ModelMultiSelect } from './model-picker'
 
 export function promptLines(value: string) {
   return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
@@ -75,16 +76,27 @@ export function PromptManagement({ projectId }: { projectId: number }) {
       <Button onClick={() => setShowCreate(true)} className="mb-8 border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold">+ پرامپت جدید</Button>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="rounded-none border-3 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)] font-vazirmatn">
+        <DialogContent className="max-h-[90vh] w-[min(96vw,44rem)] overflow-y-auto rounded-none border-3 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)] font-vazirmatn">
           <DialogHeader>
             <DialogTitle className="text-xl font-black">پرامپت جدید</DialogTitle>
             <DialogDescription className="font-medium text-muted-text">هر خط یک پرامپت جداگانه است؛ مدل‌های انتخاب‌شده برای همه اعمال می‌شود.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-          <textarea value={text} onChange={e => setText(e.target.value)} placeholder="هر خط یک پرامپت..." rows={3} className="w-full resize-y rounded-none border-3 border-border p-3 font-medium outline-none font-vazirmatn" />
-          <details className="border-2 border-border">
-            <summary className="cursor-pointer px-3 py-2 text-sm font-bold">انتخاب مدل</summary>
-            <div className="border-t-2 border-border p-3"><ModelSelector models={models} selectedIds={selectedIds} onToggle={id => setSelectedIds(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])} /></div>
+          <label htmlFor="prompt-batch-text" className="block text-sm font-bold">متن پرامپت‌ها</label>
+          <textarea id="prompt-batch-text" value={text} onChange={e => setText(e.target.value)} placeholder="هر خط یک پرامپت..." rows={3} className="w-full resize-y rounded-none border-3 border-border p-3 font-medium outline-none font-vazirmatn" />
+          <details open className="border-2 border-border">
+            <summary className="flex cursor-pointer items-center justify-between px-3 py-2 text-sm font-bold">
+              <span>انتخاب مدل</span>
+              <span className="text-xs font-medium text-muted-text">{selectedIds.length ? `${selectedIds.length} انتخاب شده` : `${models.length} مدل فعال`}</span>
+            </summary>
+            <div className="border-t-2 border-border p-3">
+              <ModelMultiSelect
+                models={models}
+                selectedIds={selectedIds}
+                onToggle={id => setSelectedIds(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id])}
+                onClear={() => setSelectedIds([])}
+              />
+            </div>
           </details>
           </div>
           <DialogFooter className="gap-2">
@@ -112,12 +124,6 @@ export function PromptManagement({ projectId }: { projectId: number }) {
   )
 }
 
-function ModelSelector({ models, selectedIds, onToggle }: { models: AIModelRead[]; selectedIds: number[]; onToggle: (id: number) => void }) {
-  const [search, setSearch] = useState('')
-  const filtered = models.filter(model => !search || model.name.toLowerCase().includes(search.toLowerCase()))
-  return <div><input type="search" placeholder="جستجوی مدل..." value={search} onChange={e => setSearch(e.target.value)} className="mb-2 w-full rounded-none border-3 border-border p-2.5 font-medium outline-none font-vazirmatn" /><div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">{filtered.map(model => <label key={model.id} className="flex cursor-pointer items-center gap-2 font-medium"><input type="checkbox" checked={selectedIds.includes(model.id)} onChange={() => onToggle(model.id)} className="size-4 accent-accent-neon" />{model.name}</label>)}{!filtered.length && <span className="p-1 text-sm text-muted-text">مدلی یافت نشد</span>}</div>{selectedIds.length > 0 && <div className="mt-1.5 text-xs text-muted-text">{selectedIds.length} مدل انتخاب شده</div>}</div>
-}
-
 function daysUntilArchiveRemoval(archivedAt: string) {
   return Math.max(0, Math.ceil((Date.parse(archivedAt) + 30 * 24 * 60 * 60 * 1000 - Date.now()) / (24 * 60 * 60 * 1000)))
 }
@@ -141,5 +147,5 @@ function PromptCard(props: PromptCardProps) {
 
 function PromptCardStatic({ prompt, allModels, runDisabled, onRun, onArchive, onRestore, onAddModel, onRemoveModel, onNavigate }: PromptCardProps) {
   const available = allModels.filter(model => !prompt.models.some(selected => selected.id === model.id))
-  return <Card onClick={e => { if ((e.target as HTMLElement).closest('.prompt-action')) return; onNavigate() }} className="cursor-pointer border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader className="flex-row items-start justify-between gap-3"><p className="flex-1 whitespace-pre-wrap text-sm font-medium leading-relaxed">{prompt.text}</p><div className="flex shrink-0 gap-2">{onRun && <button type="button" disabled={runDisabled} title={runDisabled ? 'مدل قابل اجرایی برای امروز باقی نمانده است' : undefined} className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40" onClick={onRun}>{runDisabled ? 'انجام شد' : 'اجرا'}</button>}{onArchive && <button type="button" className="prompt-action border-3 border-border bg-card px-3 py-1.5 text-xs font-bold" onClick={onArchive}>بایگانی</button>}{onRestore && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRestore}>بازگردانی</button>}</div></CardHeader><CardContent><div className="flex flex-wrap items-center gap-2">{prompt.models.map(model => <span key={model.id} className={`prompt-action inline-flex items-center gap-1 border-2 px-2 py-0.5 text-xs font-bold ${model.is_active ? 'border-border' : 'border-destructive/60 text-muted-text opacity-80'}`}>{model.name}{!model.is_active && <span className="border border-destructive/60 bg-destructive/10 px-1 py-px text-[10px] font-black text-destructive">منسوخ شده</span>}{onRemoveModel && <button type="button" title="حذف مدل" onClick={() => onRemoveModel(model.id)}>×</button>}</span>)}{onAddModel && available.length > 0 && <select className="prompt-action border-2 border-border bg-card p-1 text-xs" defaultValue="" onChange={e => { if (e.target.value) { onAddModel(Number(e.target.value)); e.target.value = '' } }}><option value="" disabled>+ مدل</option>{available.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select>}</div>{!prompt.is_active && <p className="mt-3 text-xs font-bold text-muted-text">حذف خودکار تا {daysUntilArchiveRemoval(prompt.updated_at)} روز دیگر</p>}</CardContent></Card>
+  return <Card onClick={e => { if ((e.target as HTMLElement).closest('.prompt-action')) return; onNavigate() }} className="cursor-pointer border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader className="flex-row items-start justify-between gap-3"><p className="flex-1 whitespace-pre-wrap text-sm font-medium leading-relaxed">{prompt.text}</p><div className="flex shrink-0 gap-2">{onRun && <button type="button" disabled={runDisabled} title={runDisabled ? 'مدل قابل اجرایی برای امروز باقی نمانده است' : undefined} className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40" onClick={onRun}>{runDisabled ? 'انجام شد' : 'اجرا'}</button>}{onArchive && <button type="button" className="prompt-action border-3 border-border bg-card px-3 py-1.5 text-xs font-bold" onClick={onArchive}>بایگانی</button>}{onRestore && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRestore}>بازگردانی</button>}</div></CardHeader><CardContent><div className="flex flex-wrap items-center gap-2">{prompt.models.map(model => <span key={model.id} className={`prompt-action inline-flex items-center gap-1 border-2 px-2 py-0.5 text-xs font-bold ${model.is_active ? 'border-border' : 'border-destructive/60 text-muted-text opacity-80'}`}>{model.name}{!model.is_active && <span className="border border-destructive/60 bg-destructive/10 px-1 py-px text-[10px] font-black text-destructive">منسوخ شده</span>}{onRemoveModel && <button type="button" title="حذف مدل" aria-label={`حذف ${model.name}`} onClick={() => onRemoveModel(model.id)}>×</button>}</span>)}{onAddModel && <AddModelMenu models={available} onAdd={onAddModel} />}</div>{!prompt.is_active && <p className="mt-3 text-xs font-bold text-muted-text">حذف خودکار تا {daysUntilArchiveRemoval(prompt.updated_at)} روز دیگر</p>}</CardContent></Card>
 }
