@@ -76,7 +76,7 @@ export function deleteProject(id: number): Promise<void> { return authRequest('D
 
 export interface PromptCreate { text: string; model_ids: number[] }
 export interface AIRunResult { ai_run_id: number; ai_run_status: string; extraction_status: string; brands_found: number; new_brands: number; existing_brands: number; error_message?: string | null }
-export interface PromptModelExecutionAvailability { model_id: number; model_name: string; can_run: boolean; claim_source?: string | null }
+export interface PromptModelExecutionAvailability { model_id: number; model_name: string; model_is_active?: boolean; can_run: boolean; claim_source?: string | null }
 export interface ProjectRun { ai_run_id: number; prompt: string; ai_model: string; status: string; extraction_status: string; created_at: string; completed_at?: string | null }
 export interface Page<T> { items: T[]; page: number; page_size: number; total: number }
 export interface ProjectBrand { id: number; name: string; domain?: string | null; kind: 'owned' | 'competitor'; brand_id?: number | null }

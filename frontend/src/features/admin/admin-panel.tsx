@@ -202,7 +202,7 @@ function PromptsTab({ onLoaded }: { onLoaded: () => void }) {
                 </div>
                 <p className="whitespace-pre-wrap text-sm font-medium leading-relaxed">{prompt.text}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {prompt.models.map(model => <span key={model.id} className="inline-flex items-center border-2 border-border px-2 py-0.5 text-xs font-bold" title={model.model_key}>{model.name}</span>)}
+                  {prompt.models.map(model => <span key={model.id} className={`inline-flex items-center gap-1 border-2 px-2 py-0.5 text-xs font-bold ${model.is_active ? 'border-border' : 'border-destructive/60 text-muted-text'}`} title={model.model_key}>{model.name}{!model.is_active && <span className="border border-destructive/60 bg-destructive/10 px-1 py-px text-[10px] font-black text-destructive">منسوخ شده</span>}</span>)}
                   {!prompt.models.length && <span className="text-xs text-muted-text">بدون مدل</span>}
                 </div>
               </div>

@@ -327,7 +327,7 @@ export function PromptAnalyticsPage() {
                   <SelectTrigger id="raw-prompt-model" className="h-11 border-border/80 bg-background font-medium"><SelectValue placeholder="همه مدل‌ها" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">همه مدل‌ها</SelectItem>
-                    {prompt?.models.map(model => <SelectItem key={model.id} value={String(model.id)}>{model.name}</SelectItem>)}
+                    {prompt?.models.map(model => <SelectItem key={model.id} value={String(model.id)}>{model.name}{model.is_active ? '' : ' (منسوخ شده)'}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

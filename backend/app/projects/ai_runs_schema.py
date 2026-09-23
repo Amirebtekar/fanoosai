@@ -29,5 +29,6 @@ class AIRunResult(BaseModel):
 class PromptModelExecutionAvailability(BaseModel):
     model_id: int
     model_name: str
+    model_is_active: bool = True
     can_run: bool
     claim_source: str | None = None

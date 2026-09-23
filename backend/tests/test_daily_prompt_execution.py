@@ -243,9 +243,46 @@ async def test_execution_availability_reports_today_claim_source_per_model():
     await service.run_prompt_models(prompt, now=today, source="scheduled")
 
     assert await service.execution_availability(prompt, now=today) == [
-        {"model_id": 1, "model_name": "model-a", "can_run": False, "claim_source": "scheduled"},
-        {"model_id": 2, "model_name": "model-b", "can_run": False, "claim_source": "scheduled"},
+        {"model_id": 1, "model_name": "model-a", "model_is_active": True, "can_run": False, "claim_source": "scheduled"},
+        {"model_id": 2, "model_name": "model-b", "model_is_active": True, "can_run": False, "claim_source": "scheduled"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_execution_availability_marks_inactive_models_unrunnable():
+    repository = FakeRunRepository()
+    prompt = SimpleNamespace(
+        id=7,
+        text="test prompt",
+        models=[
+            SimpleNamespace(model=SimpleNamespace(id=1, name="model-a", model_key="model-a", is_active=True)),
+            SimpleNamespace(model=SimpleNamespace(id=2, name="gpt-chat", model_key="openai/gpt-5-chat", is_active=False)),
+        ],
+    )
+    service = AIRunService(repository, FakeAIService(), FakeExtractionService(), FakePersistenceService())
+
+    availability = await service.execution_availability(prompt, now=datetime(2026, 7, 17))
+
+    assert availability == [
+        {"model_id": 1, "model_name": "model-a", "model_is_active": True, "can_run": True, "claim_source": None},
+        {"model_id": 2, "model_name": "gpt-chat", "model_is_active": False, "can_run": False, "claim_source": None},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_prompt_model_skips_inactive_model():
+    repository = FakeRunRepository()
+    prompt = SimpleNamespace(
+        id=7,
+        text="test prompt",
+        models=[SimpleNamespace(model=SimpleNamespace(id=2, name="gpt-chat", model_key="openai/gpt-5-chat", is_active=False))],
+    )
+    service = AIRunService(repository, FakeAIService(), FakeExtractionService(), FakePersistenceService())
+
+    results = await service.run_prompt_model(prompt, 2, now=datetime(2026, 7, 17))
+
+    assert results == []
+    assert repository.created == []
 
 
 @pytest.mark.asyncio

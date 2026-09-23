@@ -63,7 +63,8 @@ class AIRunService:
             {
                 "model_id": link.model.id,
                 "model_name": link.model.name,
-                "can_run": link.model.id not in claims,
+                "model_is_active": bool(getattr(link.model, "is_active", True)),
+                "can_run": bool(getattr(link.model, "is_active", True)) and link.model.id not in claims,
                 "claim_source": claims.get(link.model.id),
             }
             for link in prompt.models
