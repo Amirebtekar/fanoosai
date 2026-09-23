@@ -24,6 +24,7 @@ export function PromptManagement({ projectId }: { projectId: number }) {
   const navigate = useNavigate()
   const [prompts, setPrompts] = useState<PromptRead[]>([])
   const [models, setModels] = useState<AIModelRead[]>([])
+  const [availability, setAvailability] = useState<Record<number, PromptModelExecutionAvailability[]>>({})
   const [text, setText] = useState('')
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [creating, setCreating] = useState(false)
@@ -34,6 +35,9 @@ export function PromptManagement({ projectId }: { projectId: number }) {
       const [promptData, modelData] = await Promise.all([listPrompts(projectId, true), listAIModels()])
       setPrompts(promptData)
       setModels(modelData)
+      const active = promptData.filter(p => p.is_active)
+      const entries = await Promise.all(active.map(async p => [p.id, await getExecutionAvailability(projectId, p.id)] as const))
+      setAvailability(Object.fromEntries(entries))
     } catch (e) {
       toast.error(getErrorMessage(e, 'خطا در دریافت پرامپت‌ها'))
     }
@@ -92,10 +96,14 @@ export function PromptManagement({ projectId }: { projectId: number }) {
 
       <h2 className="mb-4 text-lg font-black">پرامپت‌های فعال ({active.length})</h2>
       <div className="space-y-4">
-        {active.map(prompt => <PromptCard key={prompt.id} prompt={prompt} allModels={models} onRun={() => update(async () => {
-          const available = await getExecutionAvailability(projectId, prompt.id)
-          return runAvailablePromptModels(available, modelId => runPrompt(projectId, prompt.id, modelId))
-        }, 'پرامپت اجرا شد', 'خطا در اجرای پرامپت')} onArchive={() => update(() => archivePrompt(projectId, prompt.id), 'پرامپت بایگانی شد', 'خطا در بایگانی')} onAddModel={modelId => update(() => addPromptModel(projectId, prompt.id, modelId), 'مدل اضافه شد', 'خطا در افزودن مدل')} onRemoveModel={modelId => update(() => removePromptModel(projectId, prompt.id, modelId), 'مدل حذف شد', 'خطا در حذف مدل')} onNavigate={() => navigate({ to: '/projects/' + projectId + '/prompts/' + prompt.id })} />)}
+        {active.map(prompt => {
+          const promptAvailability = availability[prompt.id]
+          const canRun = !promptAvailability || promptAvailability.some(m => m.can_run)
+          return <PromptCard key={prompt.id} prompt={prompt} allModels={models} runDisabled={!canRun} onRun={canRun ? () => update(async () => {
+            const available = await getExecutionAvailability(projectId, prompt.id)
+            return runAvailablePromptModels(available, modelId => runPrompt(projectId, prompt.id, modelId))
+          }, 'پرامپت اجرا شد', 'خطا در اجرای پرامپت') : undefined} onArchive={() => update(() => archivePrompt(projectId, prompt.id), 'پرامپت بایگانی شد', 'خطا در بایگانی')} onAddModel={modelId => update(() => addPromptModel(projectId, prompt.id, modelId), 'مدل اضافه شد', 'خطا در افزودن مدل')} onRemoveModel={modelId => update(() => removePromptModel(projectId, prompt.id, modelId), 'مدل حذف شد', 'خطا در حذف مدل')} onNavigate={() => navigate({ to: '/projects/' + projectId + '/prompts/' + prompt.id })} />
+        })}
         {!active.length && <p className="text-sm font-medium text-muted-text">پرامپت فعالی وجود ندارد.</p>}
       </div>
 
@@ -114,7 +122,7 @@ function daysUntilArchiveRemoval(archivedAt: string) {
   return Math.max(0, Math.ceil((Date.parse(archivedAt) + 30 * 24 * 60 * 60 * 1000 - Date.now()) / (24 * 60 * 60 * 1000)))
 }
 
-type PromptCardProps = { prompt: PromptRead; allModels: AIModelRead[]; onRun?: () => void; onArchive?: () => void; onRestore?: () => void; onAddModel?: (id: number) => void; onRemoveModel?: (id: number) => void; onNavigate: () => void }
+type PromptCardProps = { prompt: PromptRead; allModels: AIModelRead[]; runDisabled?: boolean; onRun?: () => void; onArchive?: () => void; onRestore?: () => void; onAddModel?: (id: number) => void; onRemoveModel?: (id: number) => void; onNavigate: () => void }
 
 function PromptCard(props: PromptCardProps) {
   const [isRunning, setIsRunning] = useState(false)
@@ -131,7 +139,7 @@ function PromptCard(props: PromptCardProps) {
   </div>
 }
 
-function PromptCardStatic({ prompt, allModels, onRun, onArchive, onRestore, onAddModel, onRemoveModel, onNavigate }: PromptCardProps) {
+function PromptCardStatic({ prompt, allModels, runDisabled, onRun, onArchive, onRestore, onAddModel, onRemoveModel, onNavigate }: PromptCardProps) {
   const available = allModels.filter(model => !prompt.models.some(selected => selected.id === model.id))
-  return <Card onClick={e => { if ((e.target as HTMLElement).closest('.prompt-action')) return; onNavigate() }} className="cursor-pointer border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader className="flex-row items-start justify-between gap-3"><p className="flex-1 whitespace-pre-wrap text-sm font-medium leading-relaxed">{prompt.text}</p><div className="flex shrink-0 gap-2">{onRun && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRun}>اجرا</button>}{onArchive && <button type="button" className="prompt-action border-3 border-border bg-card px-3 py-1.5 text-xs font-bold" onClick={onArchive}>بایگانی</button>}{onRestore && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRestore}>بازگردانی</button>}</div></CardHeader><CardContent><div className="flex flex-wrap items-center gap-2">{prompt.models.map(model => <span key={model.id} className="prompt-action inline-flex items-center gap-1 border-2 border-border px-2 py-0.5 text-xs font-bold">{model.name}{onRemoveModel && <button type="button" onClick={() => onRemoveModel(model.id)}>×</button>}</span>)}{onAddModel && available.length > 0 && <select className="prompt-action border-2 border-border bg-card p-1 text-xs" defaultValue="" onChange={e => { if (e.target.value) { onAddModel(Number(e.target.value)); e.target.value = '' } }}><option value="" disabled>+ مدل</option>{available.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select>}</div>{!prompt.is_active && <p className="mt-3 text-xs font-bold text-muted-text">حذف خودکار تا {daysUntilArchiveRemoval(prompt.updated_at)} روز دیگر</p>}</CardContent></Card>
+  return <Card onClick={e => { if ((e.target as HTMLElement).closest('.prompt-action')) return; onNavigate() }} className="cursor-pointer border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader className="flex-row items-start justify-between gap-3"><p className="flex-1 whitespace-pre-wrap text-sm font-medium leading-relaxed">{prompt.text}</p><div className="flex shrink-0 gap-2">{onRun && <button type="button" disabled={runDisabled} title={runDisabled ? 'امروز اجرا شده است' : undefined} className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40" onClick={onRun}>{runDisabled ? 'انجام شد' : 'اجرا'}</button>}{onArchive && <button type="button" className="prompt-action border-3 border-border bg-card px-3 py-1.5 text-xs font-bold" onClick={onArchive}>بایگانی</button>}{onRestore && <button type="button" className="prompt-action border-3 border-border bg-accent-neon px-3 py-1.5 text-xs font-bold" onClick={onRestore}>بازگردانی</button>}</div></CardHeader><CardContent><div className="flex flex-wrap items-center gap-2">{prompt.models.map(model => <span key={model.id} className="prompt-action inline-flex items-center gap-1 border-2 border-border px-2 py-0.5 text-xs font-bold">{model.name}{onRemoveModel && <button type="button" onClick={() => onRemoveModel(model.id)}>×</button>}</span>)}{onAddModel && available.length > 0 && <select className="prompt-action border-2 border-border bg-card p-1 text-xs" defaultValue="" onChange={e => { if (e.target.value) { onAddModel(Number(e.target.value)); e.target.value = '' } }}><option value="" disabled>+ مدل</option>{available.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select>}</div>{!prompt.is_active && <p className="mt-3 text-xs font-bold text-muted-text">حذف خودکار تا {daysUntilArchiveRemoval(prompt.updated_at)} روز دیگر</p>}</CardContent></Card>
 }

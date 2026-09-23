@@ -60,7 +60,26 @@ class ProjectRepository:
         return project
 
     async def delete(self, project: Project) -> None:
-        await self.session.delete(project)
+        from app.database.models import (
+            AIRun, Alert, AlertRule, DailyPromptRun, Prompt, PromptModel, ReportShare, RunBrand,
+        )
+        from sqlalchemy import delete as sa_delete
+
+        prompt_ids = list((await self.session.scalars(select(Prompt.id).where(Prompt.project_id == project.id))).all())
+        if prompt_ids:
+            run_ids = list((await self.session.scalars(select(AIRun.id).where(AIRun.prompt_id.in_(prompt_ids)))).all())
+            if run_ids:
+                await self.session.execute(sa_delete(RunBrand).where(RunBrand.ai_run_id.in_(run_ids)))
+            await self.session.execute(sa_delete(AIRun).where(AIRun.prompt_id.in_(prompt_ids)))
+            await self.session.execute(sa_delete(PromptModel).where(PromptModel.prompt_id.in_(prompt_ids)))
+            await self.session.execute(sa_delete(DailyPromptRun).where(DailyPromptRun.prompt_id.in_(prompt_ids)))
+        await self.session.execute(sa_delete(ReportShare).where(ReportShare.project_id == project.id))
+        await self.session.execute(sa_delete(Alert).where(Alert.project_id == project.id))
+        await self.session.execute(sa_delete(AlertRule).where(AlertRule.project_id == project.id))
+        if prompt_ids:
+            await self.session.execute(sa_delete(Prompt).where(Prompt.id.in_(prompt_ids)))
+        await self.session.execute(sa_delete(ProjectBrand).where(ProjectBrand.project_id == project.id))
+        await self.session.execute(sa_delete(Project).where(Project.id == project.id))
         await self.session.commit()
 
     async def can_write(self, project_id: int, user_id: int) -> bool:

@@ -31,7 +31,7 @@ export function getErrorMessage(e: unknown, fallback: string): string {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(API_BASE + path, { method, credentials: 'include', headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
+  const res = await fetch(API_BASE + path, { method, credentials: 'include', headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined })
   if (!res.ok) { let detail: unknown; try { detail = await res.json() } catch { detail = res.statusText }; throw new ApiError(res.status, detail) }
   const text = await res.text()
   if (!text) return undefined as T
@@ -50,7 +50,7 @@ function authRequest<T>(method: string, path: string, body?: unknown): Promise<T
 }
 
 async function raw<T>(method: string, path: string, headers: Record<string, string>, body?: unknown): Promise<T> {
-  const res = await fetch(API_BASE + path, { credentials: 'include', method, headers, body: body ? JSON.stringify(body) : undefined })
+  const res = await fetch(API_BASE + path, { credentials: 'include', method, headers: { Accept: 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined })
   if (!res.ok) {
     let detail: unknown; try { detail = await res.json() } catch { detail = res.statusText }
     if (res.status === 401) { localStorage.removeItem('user'); window.location.href = '/sign-in' }

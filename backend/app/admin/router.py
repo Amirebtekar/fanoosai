@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.auth.fastapi_users import fastapi_users
 from app.core.config import settings
-from app.database.models import AIModel, AIRun, Project, Prompt, UserTable
+from app.database.models import AIModel, AIRun, Project, Prompt, PromptModel, UserTable
 from app.dependencies import get_session
 from app.projects.ai_models_schema import AIModelRead
 from app.projects.schema import PromptRead
