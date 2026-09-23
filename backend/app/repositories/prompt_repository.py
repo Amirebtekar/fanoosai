@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import List
@@ -98,6 +98,15 @@ class PromptRepository:
         await self.session.execute(delete(AIRun).where(AIRun.prompt_id.in_(prompt_ids)))
         await self.session.execute(delete(PromptModel).where(PromptModel.prompt_id.in_(prompt_ids)))
         await self.session.execute(delete(DailyPromptRun).where(DailyPromptRun.prompt_id.in_(prompt_ids)))
+        await self.session.execute(
+            text(
+                "DELETE FROM prompt_revisions "
+                "WHERE prompt_id IN ("
+                "SELECT id FROM prompts "
+                "WHERE is_active IS FALSE AND updated_at < :before)"
+            ),
+            {"before": before},
+        )
         result = await self.session.execute(delete(Prompt).where(Prompt.id.in_(prompt_ids)))
         await self.session.commit()
         return result.rowcount

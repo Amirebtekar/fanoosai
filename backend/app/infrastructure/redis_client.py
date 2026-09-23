@@ -13,7 +13,7 @@ def get_redis() -> Redis:
             settings.REDIS_URL,
             decode_responses=True,
             socket_connect_timeout=1,
-            socket_timeout=1,
+            socket_timeout=10,
             retry_on_timeout=False,
         )
     return _redis
