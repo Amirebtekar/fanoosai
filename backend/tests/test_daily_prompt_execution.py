@@ -57,6 +57,8 @@ class FakeRunRepository:
 
 
 class FakeAIService:
+    last_usage: dict = {}
+
     def __init__(self):
         self.calls = []
 

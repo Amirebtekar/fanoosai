@@ -43,7 +43,7 @@ async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
             await queue.ack(entry_id)
             return
         run_at = datetime.combine(
-            date.fromisoformat(job.run_date), time.min, tzinfo=ZoneInfo(settings.RUN_TIMEZONE)
+            date.fromisoformat(job.run_date), time(hour=9), tzinfo=ZoneInfo(settings.RUN_TIMEZONE)
         )
         await service.run_prompt_model(prompt, job.ai_model_id, now=run_at, source=job.source, run_attempt=job.run_attempt)
         await queue.ack(entry_id)

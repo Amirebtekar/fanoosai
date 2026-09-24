@@ -24,7 +24,10 @@ async def schedule_once() -> int:
         return 0
     count = 0
     try:
-        run_date = datetime.now(ZoneInfo(settings.RUN_TIMEZONE)).date()
+        local_now = datetime.now(ZoneInfo(settings.RUN_TIMEZONE))
+        if local_now.hour != 9:
+            return 0
+        run_date = local_now.date()
         async with async_session_maker() as session:
             await PromptRepository(session).purge_archived_before(datetime.now(timezone.utc) - timedelta(days=30))
             prompts = (await session.execute(
