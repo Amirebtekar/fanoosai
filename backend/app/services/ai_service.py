@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import ssl
 from urllib.parse import urlsplit
 
@@ -233,6 +234,14 @@ class AIService:
                 for candidate in payload["candidates"]:
                     for chunk in candidate.get("groundingMetadata", {}).get("groundingChunks", []):
                         add_source(chunk.get("web", {}).get("uri"))
+            elif "choices" in payload:
+                if not payload["choices"]:
+                    return body
+                message = payload["choices"][0].get("message") or {}
+                text = message.get("content") if isinstance(message.get("content"), str) else ""
+                for url in re.findall(r"https?://[^\s)\]>]+", text):
+                    add_source(url.rstrip(".,;:!?\"'"))
+                return json.dumps({**payload, **({"sources": list(sources)} if sources else {})})
             else:
                 parts = payload["content"]
                 for part in parts:

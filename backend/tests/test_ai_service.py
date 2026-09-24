@@ -70,6 +70,14 @@ def test_leaves_non_gemini_response_unchanged():
     assert AIService._normalize_response('{"choices":[]}') == '{"choices":[]}'
 
 
+def test_extracts_sources_from_chat_content():
+    response = AIService._normalize_response(json.dumps({
+        "choices": [{"message": {"content": "منبع: https://example.com/report."}}],
+    }))
+
+    assert json.loads(response)["sources"] == ["https://example.com/report"]
+
+
 @pytest.mark.asyncio
 async def test_user_prompts_use_responses_web_search(monkeypatch):
     class Response:
