@@ -57,9 +57,9 @@ class AIModelRepository:
             if old_model is None:
                 continue
             replacement = current_models.get(old_model.model_key)
-            if replacement is None or replacement.id == old_model.id:
+            if replacement is None or replacement.id == old_model.id or not replacement.is_active:
                 base_key = old_model.model_key.rsplit('/', 1)[-1]
-                replacement = next((model for key, model in current_models.items() if model.id != old_model.id and key.rsplit('/', 1)[-1] == base_key), None)
+                replacement = next((model for key, model in current_models.items() if model.id != old_model.id and model.is_active and key.rsplit('/', 1)[-1] == base_key), None)
             if replacement is None or replacement.id == old_model.id:
                 continue
             duplicate = next((item for item in links if item.prompt_id == link.prompt_id and item.ai_model_id == replacement.id), None)
