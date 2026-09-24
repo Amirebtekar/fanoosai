@@ -189,7 +189,9 @@ export function listAdminPrompts(params: { include_archived?: boolean; search?: 
   return authRequest('GET', '/admin/prompts' + suffix)
 }
 export function setAdminPromptActive(promptId: number, is_active: boolean): Promise<AdminPromptRead> { return authRequest('PATCH', `/admin/prompts/${promptId}/active?is_active=${is_active}`) }
-export function syncGatewayModels(): Promise<AIModelRead[]> { return authRequest('POST', '/ai-models/sync') }
+export interface GatewayModel { name: string; provider: string; model_key: string }
+export function syncGatewayModels(): Promise<GatewayModel[]> { return authRequest('POST', '/ai-models/sync') }
+export function saveModelSelection(models: GatewayModel[], active_model_keys: string[]): Promise<AIModelRead[]> { return authRequest('POST', '/ai-models/save', { models, active_model_keys }) }
 export function getModelHealth(modelId: number): Promise<ModelHealthStats> { return authRequest('GET', `/ai-models/${modelId}/health`) }
 
 export interface ExtractionSettings { extraction_prompt: string; extraction_model: string; domain_format_instruction: string }

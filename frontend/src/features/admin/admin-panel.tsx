@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getAdminCosts, getAdminOverview, getErrorMessage, getExtractionSettings, listAdminModels, listAdminPrompts, listAdminReferences, resetExtractionSettings, setAdminPromptActive, setModelActive, syncGatewayModels, updateExtractionSettings, type AdminCostItem, type AdminOverview, type AdminPromptRead, type AdminReference, type AIModelRead, type ExtractionSettings } from '@/lib/api'
+import { getAdminCosts, getAdminOverview, getErrorMessage, getExtractionSettings, listAdminModels, listAdminPrompts, listAdminReferences, resetExtractionSettings, saveModelSelection, setAdminPromptActive, syncGatewayModels, updateExtractionSettings, type AdminCostItem, type AdminOverview, type AdminPromptRead, type AdminReference, type AIModelRead, type ExtractionSettings, type GatewayModel } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
@@ -75,12 +75,16 @@ function StatsCards({ overview }: { overview: AdminOverview }) {
 
 function ModelsTab({ onLoaded }: { onLoaded: () => void }) {
   const [models, setModels] = useState<AIModelRead[]>([])
+  const [gatewayModels, setGatewayModels] = useState<GatewayModel[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      setModels(await listAdminModels())
+      const current = await listAdminModels()
+      setModels(current)
+      setGatewayModels(current.map(({ name, provider, model_key }) => ({ name, provider, model_key })))
     } catch (e) {
       toast.error(getErrorMessage(e, 'خطا در دریافت مدل‌ها'))
     } finally {
@@ -90,56 +94,75 @@ function ModelsTab({ onLoaded }: { onLoaded: () => void }) {
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 
-  const toggle = async (model: AIModelRead, is_active: boolean) => {
-    try {
-      const updated = await setModelActive(model.id, is_active)
-      setModels(current => current.map(m => (m.id === updated.id ? updated : m)))
-      toast.success(is_active ? 'مدل فعال شد' : 'مدل غیرفعال شد')
-      onLoaded()
-    } catch (e) {
-      toast.error(getErrorMessage(e, 'خطا در تغییر وضعیت مدل'))
-    }
+  const activeKeys = new Set(models.filter(model => model.is_active).map(model => model.model_key))
+  const toggle = (modelKey: string, is_active: boolean) => {
+    setModels(current => {
+      if (current.some(model => model.model_key === modelKey)) {
+        return current.map(model => model.model_key === modelKey ? { ...model, is_active } : model)
+      }
+      const gateway = gatewayModels.find(model => model.model_key === modelKey)
+      return gateway ? [...current, { id: 0, ...gateway, is_active, created_at: null }] : current
+    })
   }
 
   const sync = async () => {
     setSyncing(true)
     try {
-      const synced = await syncGatewayModels()
-      setModels(synced)
-      toast.success(`${synced.length} مدل همگام‌سازی شد`)
-      onLoaded()
+      setGatewayModels(await syncGatewayModels())
+      toast.success('فهرست مدل‌های موجود دریافت شد؛ برای اعمال تغییرات ذخیره کنید')
     } catch (e) {
-      toast.error(getErrorMessage(e, 'خطا در همگام‌سازی مدل‌ها'))
+      toast.error(getErrorMessage(e, 'خطا در دریافت مدل‌ها'))
     } finally {
       setSyncing(false)
     }
   }
 
+  const save = async () => {
+    setSaving(true)
+    try {
+      const saved = await saveModelSelection(gatewayModels, [...activeKeys])
+      setModels(saved)
+      toast.success('وضعیت مدل‌ها ذخیره شد')
+      onLoaded()
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'خطا در ذخیره مدل‌ها'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const disableAll = () => setModels(current => current.map(model => ({ ...model, is_active: false })))
+
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm font-medium text-muted-text">مدل‌های غیرفعال در زمان‌بندی خودکار اجرا نمی‌شوند.</p>
-        <Button disabled={syncing} onClick={sync} className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50">{syncing ? 'در حال همگام‌سازی...' : 'همگام‌سازی از گیت‌وی'}</Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm font-medium text-muted-text">همگام‌سازی فقط مدل‌های موجود را نشان می‌دهد؛ تغییر وضعیت با ذخیره اعمال می‌شود.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={disableAll} disabled={loading || saving}>غیرفعال‌کردن همه</Button>
+          <Button variant="outline" disabled={syncing} onClick={() => void sync()}>{syncing ? 'در حال دریافت...' : 'نمایش مدل‌های Gateway'}</Button>
+          <Button disabled={saving || loading} onClick={() => void save()} className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold disabled:opacity-50">{saving ? 'در حال ذخیره...' : 'ذخیره وضعیت مدل‌ها'}</Button>
+        </div>
       </div>
 
       <div className="border-2 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)]">
         {loading ? (
           <div className="space-y-3 p-6">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 bg-accent" />)}</div>
-        ) : !models.length ? (
-          <p className="p-6 text-sm font-medium text-muted-text">هنوز مدلی ثبت نشده؛ با دکمه «همگام‌سازی از گیت‌وی» مدل‌ها را دریافت کنید.</p>
+        ) : !gatewayModels.length ? (
+          <p className="p-6 text-sm font-medium text-muted-text">هنوز مدلی دریافت نشده؛ فهرست مدل‌های Gateway را دریافت کنید.</p>
         ) : (
           <Table>
             <TableHeader><TableRow><TableHead>نام</TableHead><TableHead>ارائه‌دهنده</TableHead><TableHead>کلید مدل</TableHead><TableHead>وضعیت</TableHead><TableHead className="text-center">فعال</TableHead></TableRow></TableHeader>
             <TableBody>
-              {models.map(model => (
-                <TableRow key={model.id}>
+              {gatewayModels.map(model => {
+                const active = activeKeys.has(model.model_key)
+                return <TableRow key={model.model_key}>
                   <TableCell className="font-bold">{model.name}</TableCell>
                   <TableCell>{model.provider}</TableCell>
                   <TableCell className="font-mono text-xs" dir="ltr">{model.model_key}</TableCell>
-                  <TableCell><Badge variant={model.is_active ? 'default' : 'outline'} className="border-2 border-border font-bold">{model.is_active ? 'فعال' : 'غیرفعال'}</Badge></TableCell>
-                  <TableCell className="text-center"><Switch checked={model.is_active} onCheckedChange={checked => void toggle(model, checked)} aria-label={`تغییر وضعیت ${model.name}`} /></TableCell>
+                  <TableCell><Badge variant={active ? 'default' : 'outline'} className="border-2 border-border font-bold">{active ? 'فعال' : 'غیرفعال'}</Badge></TableCell>
+                  <TableCell className="text-center"><Switch checked={active} onCheckedChange={checked => toggle(model.model_key, checked)} aria-label={`تغییر وضعیت ${model.name}`} /></TableCell>
                 </TableRow>
-              ))}
+              })}
             </TableBody>
           </Table>
         )}

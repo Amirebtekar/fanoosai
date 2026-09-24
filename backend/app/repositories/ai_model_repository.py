@@ -25,8 +25,29 @@ class AIModelRepository:
         await self.session.refresh(model)
         return model
 
+    async def save_gateway_selection(self, rows: list[dict], active_model_keys: set[str]) -> list[AIModel]:
+        result = await self.session.execute(select(AIModel))
+        existing = {model.model_key: model for model in result.scalars().all()}
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            model = existing.get(row["model_key"])
+            if model is None:
+                model = AIModel(**row, is_active=False, updated_at=now)
+                self.session.add(model)
+            else:
+                model.name = row["name"]
+                model.provider = row["provider"]
+                model.updated_at = now
+            model.is_active = row["model_key"] in active_model_keys
+        gateway_keys = {row["model_key"] for row in rows}
+        for model in existing.values():
+            if model.model_key not in gateway_keys:
+                model.is_active = False
+        await self.session.commit()
+        result = await self.session.execute(select(AIModel).order_by(AIModel.name))
+        return list(result.scalars().all())
+
     async def sync_from_gateway(self, rows: list[dict]) -> list[AIModel]:
-        keys = {row["model_key"] for row in rows}
         result = await self.session.execute(select(AIModel))
         existing = {model.model_key: model for model in result.scalars().all()}
 

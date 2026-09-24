@@ -1,6 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
+
+
+class AIModelSelection(BaseModel):
+    models: list[dict]
+    active_model_keys: list[str]
 
 from app.dependencies import get_session
 from app.repositories.ai_model_repository import AIModelRepository
@@ -29,17 +35,29 @@ async def list_all_models(session: AsyncSession = Depends(get_session), _: UserT
     return (await session.execute(select(AIModel).order_by(AIModel.name))).scalars().all()
 
 
-@router.post("/sync", response_model=List[AIModelRead])
+@router.post("/sync", response_model=list[dict])
 async def sync_gateway_models(
+    service: AIModelService = Depends(get_ai_model_service),
+    _: UserTable = Depends(fastapi_users.current_user(active=True, superuser=True)),
+) -> list[dict]:
+    try:
+        return await service.list_gateway_models()
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+
+@router.post("/save", response_model=List[AIModelRead])
+async def save_model_selection(
+    selection: AIModelSelection,
     service: AIModelService = Depends(get_ai_model_service),
     _: UserTable = Depends(fastapi_users.current_user(active=True, superuser=True)),
 ) -> List[AIModelRead]:
     try:
-        await service.sync_gateway_models()
-        models = (await service.repo.session.execute(select(AIModel).order_by(AIModel.name))).scalars().all()
-        return [AIModelRead.model_validate(m) for m in models]
+        rows = [row for row in selection.models if row.get("model_key") and row.get("name")]
+        models = await service.repo.save_gateway_selection(rows, set(selection.active_model_keys))
+        return [AIModelRead.model_validate(model) for model in models]
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/gateway")
