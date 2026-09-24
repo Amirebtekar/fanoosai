@@ -20,6 +20,8 @@ from app.core.config import settings
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
+_request_lock = asyncio.Lock()
+_last_request_at = 0.0
 
 
 async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
@@ -45,7 +47,13 @@ async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
         run_at = datetime.combine(
             date.fromisoformat(job.run_date), time(hour=9), tzinfo=ZoneInfo(settings.RUN_TIMEZONE)
         )
-        await service.run_prompt_model(prompt, job.ai_model_id, now=run_at, source=job.source, run_attempt=job.run_attempt)
+        global _last_request_at
+        async with _request_lock:
+            wait = settings.WORKER_REQUEST_DELAY_SECONDS - (asyncio.get_running_loop().time() - _last_request_at)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            _last_request_at = asyncio.get_running_loop().time()
+            await service.run_prompt_model(prompt, job.ai_model_id, now=run_at, source=job.source, run_attempt=job.run_attempt)
         await queue.ack(entry_id)
 
 

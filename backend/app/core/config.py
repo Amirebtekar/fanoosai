@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     REDIS_QUEUE_NAME: str = "fanoosai:prompt-runs"
     REDIS_QUEUE_GROUP: str = "fanoosai-workers"
     REDIS_JOB_MAX_RETRIES: int = 3
+    WORKER_REQUEST_DELAY_SECONDS: int = 60
     RUN_CLAIM_LEASE_SECONDS: int = 600
     RUN_RETENTION_DAYS: int = 365
     TREND_MAX_POINTS_PER_SERIES: int = 365
