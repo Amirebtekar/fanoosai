@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.dependencies import get_session
 from app.database.connection import async_session_maker
-from app.database.models import Prompt, UserTable
+from app.database.models import AIModel, Prompt, UserTable
 from app.repositories.prompt_repository import PromptRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.ai_run_repository import AIRunRepository
