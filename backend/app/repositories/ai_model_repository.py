@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import AIModel, AIRun, PromptModel
+from app.database.models import AIModel, AIRun, DailyPromptRun, PromptModel
 
 class AIModelRepository:
     def __init__(self, session: AsyncSession):
@@ -56,6 +56,7 @@ class AIModelRepository:
             groups.setdefault(model.model_key.rsplit('/', 1)[-1], []).append(model)
         links = list((await self.session.execute(select(PromptModel))).scalars().all())
         runs = list((await self.session.execute(select(AIRun))).scalars().all())
+        daily_runs = list((await self.session.execute(select(DailyPromptRun))).scalars().all())
         for group in groups.values():
             if len(group) < 2:
                 continue
@@ -73,6 +74,14 @@ class AIModelRepository:
                 for run in runs:
                     if run.ai_model_id == duplicate.id:
                         run.ai_model_id = canonical.id
+                for daily_run in daily_runs:
+                    if daily_run.ai_model_id != duplicate.id:
+                        continue
+                    duplicate_claim = next((item for item in daily_runs if item is not daily_run and item.prompt_id == daily_run.prompt_id and item.ai_model_id == canonical.id and item.run_date == daily_run.run_date), None)
+                    if duplicate_claim is not None:
+                        await self.session.delete(daily_run)
+                    else:
+                        daily_run.ai_model_id = canonical.id
                 await self.session.delete(duplicate)
 
     async def sync_from_gateway(self, rows: list[dict]) -> list[AIModel]:
