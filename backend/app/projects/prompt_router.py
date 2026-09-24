@@ -114,7 +114,7 @@ async def list_prompts(
             raise ValueError("پروژه یافت نشد یا دسترسی ندارید")
 
         prompts = await service.list_project_prompts(project_id, include_archived)
-        return [prompt_read(p) for p in prompts]
+        return [await prompt_read(p, service.prompt_repo.session) for p in prompts]
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -356,6 +356,6 @@ async def restore_prompt(
         if prompt.project_id != project_id:
             raise ValueError("Prompt متعلق به این پروژه نیست")
 
-        return prompt_read(await service.restore_prompt(prompt_id))
+        return await prompt_read(await service.restore_prompt(prompt_id), service.prompt_repo.session)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
