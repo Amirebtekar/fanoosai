@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import AIModel, PromptModel
+from app.database.models import AIModel, AIRun, PromptModel
 
 class AIModelRepository:
     def __init__(self, session: AsyncSession):
@@ -44,29 +44,36 @@ class AIModelRepository:
             if model.model_key not in gateway_keys:
                 model.is_active = False
         await self.session.flush()
-        all_models = (await self.session.execute(select(AIModel))).scalars().all()
-        await self._migrate_prompt_models(existing.values(), {model.model_key: model for model in all_models})
+        all_models = list((await self.session.execute(select(AIModel))).scalars().all())
+        await self._merge_equivalent_models(all_models, active_model_keys)
         await self.session.commit()
         result = await self.session.execute(select(AIModel).order_by(AIModel.name))
         return list(result.scalars().all())
 
-    async def _migrate_prompt_models(self, old_models, current_models: dict[str, AIModel]) -> None:
-        links = (await self.session.execute(select(PromptModel))).scalars().all()
-        for link in links:
-            old_model = next((model for model in old_models if model.id == link.ai_model_id), None)
-            if old_model is None:
+    async def _merge_equivalent_models(self, models: list[AIModel], active_model_keys: set[str]) -> None:
+        groups: dict[str, list[AIModel]] = {}
+        for model in models:
+            groups.setdefault(model.model_key.rsplit('/', 1)[-1], []).append(model)
+        links = list((await self.session.execute(select(PromptModel))).scalars().all())
+        runs = list((await self.session.execute(select(AIRun))).scalars().all())
+        for group in groups.values():
+            if len(group) < 2:
                 continue
-            replacement = current_models.get(old_model.model_key)
-            if replacement is None or replacement.id == old_model.id or not replacement.is_active:
-                base_key = old_model.model_key.rsplit('/', 1)[-1]
-                replacement = next((model for key, model in current_models.items() if model.id != old_model.id and model.is_active and key.rsplit('/', 1)[-1] == base_key), None)
-            if replacement is None or replacement.id == old_model.id:
-                continue
-            duplicate = next((item for item in links if item.prompt_id == link.prompt_id and item.ai_model_id == replacement.id), None)
-            if duplicate is not None:
-                await self.session.delete(link)
-            else:
-                link.ai_model_id = replacement.id
+            canonical = next((model for model in group if model.model_key in active_model_keys), None) or next((model for model in group if model.is_active), None) or group[0]
+            for duplicate in group:
+                if duplicate.id == canonical.id:
+                    continue
+                for link in links:
+                    if link.ai_model_id != duplicate.id:
+                        continue
+                    if any(item.prompt_id == link.prompt_id and item.ai_model_id == canonical.id for item in links):
+                        await self.session.delete(link)
+                    else:
+                        link.ai_model_id = canonical.id
+                for run in runs:
+                    if run.ai_model_id == duplicate.id:
+                        run.ai_model_id = canonical.id
+                await self.session.delete(duplicate)
 
     async def sync_from_gateway(self, rows: list[dict]) -> list[AIModel]:
         result = await self.session.execute(select(AIModel))
