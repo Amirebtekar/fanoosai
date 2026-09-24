@@ -108,15 +108,36 @@ class AIService:
 
         if not settings.AVALAI_API_KEY:
             raise ValueError("No AI provider enabled")
-        fallback_payload = {**payload, "model": avalai_model_key(model_key)}
+        fallback_payload = {
+            "model": settings.AVALAI_MODEL or avalai_model_key(model_key),
+            "messages": [{"role": "user", "content": prompt_text}],
+            "temperature": 0.7,
+        }
+        if response_format is not None:
+            fallback_payload["response_format"] = response_format
         body = await self._request(
-            f"{settings.AVALAI_BASE_URL.rstrip('/')}{endpoint}",
+            f"{settings.AVALAI_BASE_URL.rstrip('/')}/chat/completions",
             fallback_payload,
             model_key,
             settings.AVALAI_API_KEY,
         )
         self.last_usage = self._usage(body)
         return self._normalize_response(body), "avalai"
+
+    @staticmethod
+    def _unwrap_gateway_body(body: str) -> str:
+        text = body.strip()
+        if not text.startswith("{"):
+            return body
+        try:
+            payload, _ = json.JSONDecoder().raw_decode(text)
+        except json.JSONDecodeError:
+            return body
+        if isinstance(payload, dict):
+            inner = payload.get("data")
+            if isinstance(inner, dict) and ("choices" in inner or "output" in inner):
+                return json.dumps(inner)
+        return body
 
     @staticmethod
     def _usage(body: str) -> dict:
@@ -158,7 +179,7 @@ class AIService:
                     AI_REQUESTS.labels(model_key, "error").inc()
                     raise ValueError(f"AI provider HTTP {response.status}")
                 AI_REQUESTS.labels(model_key, "success").inc()
-                return body
+                return self._unwrap_gateway_body(body)
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             AI_REQUESTS.labels(model_key, "error").inc()
             logger.exception("ai_provider_request_failed", extra={"event_data": {"provider": model_key}})

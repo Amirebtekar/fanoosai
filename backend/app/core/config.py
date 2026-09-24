@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     AI_GATEWAY_ENABLED: bool = False
     AVALAI_BASE_URL: str = "https://api.avalai.ir/v1"
     AVALAI_API_KEY: str = ""
+    AVALAI_MODEL: str = ""
     BRAND_EXTRACTION_MODEL: str = "openai/gpt-4.1-mini"
     RUN_TIMEZONE: str = "Asia/Tehran"
     AUTOMATIC_RUN_INTERVAL_SECONDS: int = 60

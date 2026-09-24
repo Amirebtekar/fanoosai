@@ -102,6 +102,7 @@ async def test_user_prompts_use_responses_web_search(monkeypatch):
         AI_GATEWAY_API_KEY="primary-key",
         AVALAI_BASE_URL="https://api.avalai.ir/v1",
         AVALAI_API_KEY="fallback-key",
+        AVALAI_MODEL="",
     ))
 
     _, provider_used = await AIService().run_prompt_with_provider("google/gemini", "latest news")
@@ -244,7 +245,7 @@ async def test_falls_back_to_avalai_after_one_primary_attempt(monkeypatch):
         def post(self, url, json, headers=None):
             self.calls.append((url, json, headers))
             if "avalai.ir" in url:
-                body = '{"output":[{"type":"message","content":[{"type":"output_text","text":"fallback"}]}]}'
+                body = '{"choices":[{"message":{"content":"fallback"}}]}'
                 return Response(200, body)
             return Response(500, "unavailable")
 
@@ -260,6 +261,7 @@ async def test_falls_back_to_avalai_after_one_primary_attempt(monkeypatch):
         AI_GATEWAY_API_KEY="primary-key",
         AVALAI_BASE_URL="https://api.avalai.ir/v1",
         AVALAI_API_KEY="fallback-key",
+        AVALAI_MODEL="",
     ))
 
     response, provider_used = await AIService().run_prompt_with_provider(
@@ -270,9 +272,11 @@ async def test_falls_back_to_avalai_after_one_primary_attempt(monkeypatch):
     assert json.loads(response)["choices"][0]["message"]["content"] == "fallback"
     assert len(session.calls) == 2
     fallback_url, fallback_payload, fallback_headers = session.calls[-1]
-    assert fallback_url == "https://api.avalai.ir/v1/responses"
+    assert fallback_url == "https://api.avalai.ir/v1/chat/completions"
     assert fallback_payload["model"] == "claude-sonnet-4-6"
-    assert fallback_payload["tools"] == [{"type": "web_search"}]
+    assert fallback_payload["messages"] == [{"role": "user", "content": "latest news"}]
+    assert "tools" not in fallback_payload
+    assert "max_tokens" not in fallback_payload
     assert fallback_headers["Authorization"] == "Bearer fallback-key"
     assert fallback_headers["User-Agent"].startswith("Mozilla/5.0")
 
@@ -311,6 +315,7 @@ async def test_skips_primary_and_calls_avalai_once_when_gateway_disabled(monkeyp
         AI_GATEWAY_API_KEY="primary-key",
         AVALAI_BASE_URL="https://api.avalai.ir/v1",
         AVALAI_API_KEY="fallback-key",
+        AVALAI_MODEL="",
     ))
 
     _, provider_used = await AIService().run_prompt_with_provider("google/gemini", "latest news")
@@ -319,3 +324,72 @@ async def test_skips_primary_and_calls_avalai_once_when_gateway_disabled(monkeyp
     assert len(session.calls) == 1
     assert "primary.example" not in session.calls[0][0]
     assert "avalai.ir" in session.calls[0][0]
+
+
+def test_unwraps_router_data_wrapper_and_trailing_sse_frame():
+    body = (
+        '{"data":{"choices":[{"message":{"content":"پاسخ روتر"}}],'
+        '"usage":{"total_tokens":12}},"success":true}\ndata: [DONE]'
+    )
+
+    unwrapped = AIService._unwrap_gateway_body(body)
+
+    assert json.loads(unwrapped)["choices"][0]["message"]["content"] == "پاسخ روتر"
+
+
+def test_leaves_standard_gateway_body_unchanged():
+    body = '{"choices":[{"message":{"content":"ok"}}]}'
+
+    assert AIService._unwrap_gateway_body(body) == body
+
+
+@pytest.mark.asyncio
+async def test_falls_back_to_router_with_configured_model(monkeypatch):
+    class Response:
+        status = 200
+
+        async def text(self):
+            return '{"data":{"choices":[{"message":{"content":"router ok"}}]},"success":true}\ndata: [DONE]'
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    class Session:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, json, headers=None):
+            self.calls.append((url, json, headers))
+            return Response()
+
+    session = Session()
+
+    async def get_session():
+        return session
+
+    monkeypatch.setattr(AIService, "_get_session", staticmethod(get_session))
+    monkeypatch.setattr(ai_service_module, "settings", SimpleNamespace(
+        AI_GATEWAY_ENABLED=False,
+        AI_GATEWAY_BASE_URL="https://primary.example/api",
+        AI_GATEWAY_API_KEY="primary-key",
+        AVALAI_BASE_URL="http://router.example/v1",
+        AVALAI_API_KEY="router-key",
+        AVALAI_MODEL="glm",
+    ))
+
+    response, provider_used = await AIService().run_prompt_with_provider(
+        "google/gemini-3.1-pro-preview", "latest news",
+    )
+
+    assert provider_used == "avalai"
+    url, payload, headers = session.calls[0]
+    assert url == "http://router.example/v1/chat/completions"
+    assert payload["model"] == "glm"
+    assert payload["messages"] == [{"role": "user", "content": "latest news"}]
+    assert "max_tokens" not in payload
+    assert "tools" not in payload
+    assert headers["Authorization"] == "Bearer router-key"
+    assert json.loads(response)["choices"][0]["message"]["content"] == "router ok"
