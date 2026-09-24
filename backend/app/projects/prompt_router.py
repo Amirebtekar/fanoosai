@@ -57,17 +57,13 @@ async def get_current_user(
     return user
 
 
-def prompt_read(prompt: Prompt) -> PromptRead:
-    active_model_keys = {
-        model.model_key.rsplit('/', 1)[-1]
-        for model in prompt.models
-        if model.model.is_active
-    }
+async def prompt_read(prompt: Prompt, session: AsyncSession) -> PromptRead:
+    active_rows = await session.execute(select(AIModel.model_key).where(AIModel.is_active.is_(True)))
+    active_model_keys = {key.rsplit('/', 1)[-1] for (key,) in active_rows}
     models = []
     for link in prompt.models:
         model = AIModelRead.model_validate(link.model)
-        if model.model_key.rsplit('/', 1)[-1] in active_model_keys:
-            model.is_active = True
+        model.is_active = model.model_key.rsplit('/', 1)[-1] in active_model_keys
         models.append(model)
     return PromptRead(
         id=prompt.id,
@@ -96,7 +92,7 @@ async def create_prompt(
             raise ValueError("پروژه یافت نشد یا دسترسی ندارید")
 
         prompt = await service.create_prompt(project_id, prompt_data.text, prompt_data.model_ids)
-        return prompt_read(prompt)
+        return await prompt_read(prompt, service.prompt_repo.session)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -143,7 +139,7 @@ async def get_prompt(
         if prompt.project_id != project_id:
             raise ValueError("Prompt متعلق به این پروژه نیست")
 
-        return prompt_read(prompt)
+        return await prompt_read(prompt, service.prompt_repo.session)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
