@@ -58,6 +58,17 @@ async def get_current_user(
 
 
 def prompt_read(prompt: Prompt) -> PromptRead:
+    active_model_keys = {
+        model.model_key.rsplit('/', 1)[-1]
+        for model in prompt.models
+        if model.model.is_active
+    }
+    models = []
+    for link in prompt.models:
+        model = AIModelRead.model_validate(link.model)
+        if model.model_key.rsplit('/', 1)[-1] in active_model_keys:
+            model.is_active = True
+        models.append(model)
     return PromptRead(
         id=prompt.id,
         project_id=prompt.project_id,
@@ -66,7 +77,7 @@ def prompt_read(prompt: Prompt) -> PromptRead:
         created_at=prompt.created_at,
         updated_at=prompt.updated_at,
         last_run_at=prompt.last_run_at,
-        models=[AIModelRead.model_validate(link.model) for link in prompt.models],
+        models=models,
     )
 
 @router.post("", response_model=PromptRead, status_code=status.HTTP_201_CREATED)
