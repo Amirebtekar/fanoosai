@@ -84,7 +84,7 @@ async def admin_costs(
         .join(AIModel, AIModel.id == AIRun.ai_model_id)
         .order_by(AIRun.created_at.desc())
     )).all()
-    return [AdminCostItem(id=row[0], created_at=row[1], model=row[2], provider=row[3], prompt_tokens=row[4], completion_tokens=row[5], total_tokens=row[6], cost_irt=row[7], status=row[8]) for row in rows]
+    return [AdminCostItem(id=row[0], created_at=row[1], model=row[2], provider="9router" if row[3] == "avalai" else row[3], prompt_tokens=row[4], completion_tokens=row[5], total_tokens=row[6], cost_irt=row[7], status=row[8]) for row in rows]
 
 
 @router.get("/overview", response_model=AdminOverview)

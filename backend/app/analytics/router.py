@@ -94,7 +94,7 @@ async def model_performance(project_id: int, session: AsyncSession = Depends(get
             func.count(AIRun.id),
             func.count(AIRun.id).filter(AIRun.status == "success"),
             func.count(AIRun.id).filter(AIRun.status == "success", AIRun.provider_used == "primary"),
-            func.count(AIRun.id).filter(AIRun.status == "success", AIRun.provider_used == "avalai"),
+            func.count(AIRun.id).filter(AIRun.status == "success", AIRun.provider_used.in_(["avalai", "9router"])),
             func.count(AIRun.id).filter(AIRun.status != "success"),
         )
         .join(PromptModel, PromptModel.ai_model_id == AIModel.id)

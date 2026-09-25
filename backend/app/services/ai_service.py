@@ -123,7 +123,7 @@ class AIService:
             settings.AVALAI_API_KEY,
         )
         self.last_usage = self._usage(body)
-        return self._normalize_response(body), "avalai"
+        return self._normalize_response(body), "9router"
 
     @staticmethod
     def _unwrap_gateway_body(body: str) -> str:

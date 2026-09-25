@@ -276,7 +276,7 @@ async def test_falls_back_to_avalai_after_one_primary_attempt(monkeypatch):
         "anthropic/claude-sonnet-4.6", "latest news",
     )
 
-    assert provider_used == "avalai"
+    assert provider_used == "9router"
     assert json.loads(response)["choices"][0]["message"]["content"] == "fallback"
     assert len(session.calls) == 2
     fallback_url, fallback_payload, fallback_headers = session.calls[-1]
@@ -328,7 +328,7 @@ async def test_skips_primary_and_calls_avalai_once_when_gateway_disabled(monkeyp
 
     _, provider_used = await AIService().run_prompt_with_provider("google/gemini", "latest news")
 
-    assert provider_used == "avalai"
+    assert provider_used == "9router"
     assert len(session.calls) == 1
     assert "primary.example" not in session.calls[0][0]
     assert "avalai.ir" in session.calls[0][0]
@@ -392,7 +392,7 @@ async def test_falls_back_to_router_with_configured_model(monkeypatch):
         "google/gemini-3.1-pro-preview", "latest news",
     )
 
-    assert provider_used == "avalai"
+    assert provider_used == "9router"
     url, payload, headers = session.calls[0]
     assert url == "http://router.example/v1/chat/completions"
     assert payload["model"] == "glm"
