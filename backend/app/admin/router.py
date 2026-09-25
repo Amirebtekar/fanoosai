@@ -41,7 +41,8 @@ class AdminCostItem(BaseModel):
     id: int
     created_at: datetime
     model: str
-    provider: str | None
+    model_provider: str | None
+    execution_provider: str | None
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
@@ -80,11 +81,11 @@ async def admin_costs(
     _: UserTable = Depends(require_superuser),
 ) -> List[AdminCostItem]:
     rows = (await session.execute(
-        select(AIRun.id, AIRun.created_at, AIModel.name, AIRun.provider_used, AIRun.prompt_tokens, AIRun.completion_tokens, AIRun.total_tokens, AIRun.cost_irt, AIRun.status)
+        select(AIRun.id, AIRun.created_at, AIModel.name, AIModel.provider, AIRun.provider_used, AIRun.prompt_tokens, AIRun.completion_tokens, AIRun.total_tokens, AIRun.cost_irt, AIRun.status)
         .join(AIModel, AIModel.id == AIRun.ai_model_id)
         .order_by(AIRun.created_at.desc())
     )).all()
-    return [AdminCostItem(id=row[0], created_at=row[1], model=row[2], provider="9router" if row[3] == "avalai" else row[3], prompt_tokens=row[4], completion_tokens=row[5], total_tokens=row[6], cost_irt=row[7], status=row[8]) for row in rows]
+    return [AdminCostItem(id=row[0], created_at=row[1], model=row[2], model_provider=row[3], execution_provider="9router" if row[4] == "avalai" else row[4], prompt_tokens=row[5], completion_tokens=row[6], total_tokens=row[7], cost_irt=row[8], status=row[9]) for row in rows]
 
 
 @router.get("/overview", response_model=AdminOverview)
