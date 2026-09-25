@@ -79,6 +79,8 @@ function ModelsTab({ onLoaded }: { onLoaded: () => void }) {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
 
   const load = useCallback(async () => {
     try {
@@ -95,6 +97,12 @@ function ModelsTab({ onLoaded }: { onLoaded: () => void }) {
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   const activeKeys = new Set(models.filter(model => model.is_active).map(model => model.model_key))
+  const filteredGatewayModels = gatewayModels.filter(model => {
+    const current = models.find(item => item.model_key === model.model_key)
+    const matchesSearch = [model.name, model.provider, model.model_key].some(value => value.toLowerCase().includes(search.trim().toLowerCase()))
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? current?.is_active : !current?.is_active)
+    return matchesSearch && matchesStatus
+  })
   const toggle = (modelKey: string, is_active: boolean) => {
     setModels(current => {
       if (current.some(model => model.model_key === modelKey)) {
@@ -144,6 +152,15 @@ function ModelsTab({ onLoaded }: { onLoaded: () => void }) {
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-3">
+        <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="جستجو در نام، ارائه‌دهنده یا کلید مدل..." className="min-w-64 flex-1 rounded-none border-2 border-border bg-card p-2.5 font-medium outline-none" />
+        <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="border-2 border-border bg-card px-3 font-bold">
+          <option value="all">همه وضعیت‌ها</option>
+          <option value="active">فعال</option>
+          <option value="inactive">غیرفعال</option>
+        </select>
+      </div>
+
       <div className="border-2 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)]">
         {loading ? (
           <div className="space-y-3 p-6">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 bg-accent" />)}</div>
@@ -153,7 +170,7 @@ function ModelsTab({ onLoaded }: { onLoaded: () => void }) {
           <Table>
             <TableHeader><TableRow><TableHead>نام</TableHead><TableHead>ارائه‌دهنده</TableHead><TableHead>کلید مدل</TableHead><TableHead>وضعیت</TableHead><TableHead className="text-center">فعال</TableHead></TableRow></TableHeader>
             <TableBody>
-              {gatewayModels.map(model => {
+              {filteredGatewayModels.map(model => {
                 const active = activeKeys.has(model.model_key)
                 return <TableRow key={model.model_key}>
                   <TableCell className="font-bold">{model.name}</TableCell>
