@@ -140,6 +140,7 @@ export function AddModelMenu({ models, onAdd, className }: AddModelMenuProps) {
       <PopoverTrigger asChild>
         <button
           type="button"
+          onClick={event => event.stopPropagation()}
           className={cn('prompt-action inline-flex items-center gap-1 border-2 border-border bg-card px-2 py-0.5 text-xs font-bold', className)}
           aria-haspopup="menu"
           aria-expanded={open}
