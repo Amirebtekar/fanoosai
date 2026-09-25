@@ -164,7 +164,7 @@ export function AddModelMenu({ models, onAdd, className }: AddModelMenuProps) {
                       onAdd(model.id)
                       setOpen(false)
                     }}
-                    className="cursor-pointer"
+                    className="prompt-action cursor-pointer"
                   >
                     <span className="flex-1 truncate" dir="ltr">{model.name}</span>
                     {!model.is_active && (
