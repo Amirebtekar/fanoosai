@@ -15,8 +15,6 @@ import { Badge } from '@/components/ui/badge'
 import { getProjectReferences, getPromptBrandTrends, getLatestRankings, getPromptHistory, listPrompts, getErrorMessage, type ProjectReference, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
 import { BrandTrendChart } from './brand-trend-chart'
 
-const RANK_BG = ['#ef4444', '#dc2626', '#b91c1c', '#f5f0e8', '#e0ddd5']
-
 export function modelResponseText(responseText: string | null): string {
   if (!responseText) return 'برای این اجرا پاسخی ثبت نشده است.'
   try {
@@ -171,8 +169,6 @@ export function PromptAnalyticsPage() {
   const modelOptions = [...new Map((allTrends?.items ?? []).map(item => [item.ai_model_id, item.ai_model])).entries()]
   const brandOptions = [...new Map((allTrends?.items ?? []).map(item => [item.brand_id, item.brand])).entries()]
   const activeFilterCount = [Boolean(selectedModel), selectedBrand !== 'all', Boolean(startDate), Boolean(endDate)].filter(Boolean).length
-
-  const groupedByModel = rankings.reduce<Record<string, PromptRankingItem[]>>((acc, item) => { if (!acc[item.ai_model]) acc[item.ai_model] = []; acc[item.ai_model].push(item); return acc }, {})
 
   if (loading) return (
     <div className="min-h-full bg-bg p-6 font-vazirmatn" dir="rtl">
@@ -367,52 +363,62 @@ export function PromptAnalyticsPage() {
           </CardContent>
         </Card>
 
-        {rankings.length === 0 && (
-          <Card className="border-border shadow-[6px_6px_0_var(--color-shadow)]">
-            <CardContent className="py-8 text-center">
-              <p className="text-sm font-medium text-muted-text">رتبه‌بندی برندها برای این پرامپت هنوز ثبت نشده است. ابتدا پرامپت را اجرا کنید.</p>
-            </CardContent>
-          </Card>
-        )}
+        {trends && trends.items.length > 0 && (() => {
+          const points = trends.items.flatMap(item => item.points.map(point => point.date.slice(0, 10)))
+          const days = [...new Set(points)].sort().slice(-7).reverse()
+          const rows = trends.items.map(item => {
+            const values = item.points
+              .filter(point => days.includes(point.date.slice(0, 10)))
+              .sort((a, b) => a.date.localeCompare(b.date))
+            const ranks = values.map(point => point.rank)
+            const daily = Object.fromEntries(values.map(point => [point.date.slice(0, 10), point.rank]))
+            const first = ranks[0]
+            const last = ranks[ranks.length - 1]
+            return { ...item, daily, average: ranks.length ? ranks.reduce((sum, rank) => sum + rank, 0) / ranks.length : null, change: first != null && last != null && ranks.length > 1 ? last - first : null }
+          }).sort((a, b) => (a.average ?? 999) - (b.average ?? 999))
 
-        {Object.entries(groupedByModel).map(([model, items]) => {
-          const sorted = [...items].sort((a, b) => a.rank - b.rank)
-          const maxRank = Math.max(...sorted.map(i => i.rank), 1)
           return (
-            <Card key={model} className="mb-5 border-border shadow-[6px_6px_0_var(--color-shadow)]">
-              <CardHeader>
-                <CardTitle className="text-base font-black">{model}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {sorted.map((item, i) => {
-                  const pct = Math.max(((maxRank - item.rank + 1) / maxRank) * 100, 10)
-                  return (
-                    <div key={item.brand + model} className="space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="inline-flex size-7 items-center justify-center border-2 border-border text-xs font-black"
-                            style={{ background: RANK_BG[i] || '#66625d', color: '#161616' }}
-                          >
-                            {item.rank}
-                          </span>
-                          <span className="text-sm font-bold">{item.brand}</span>
-                        </div>
-                        {item.domain && <span className="text-xs font-medium text-muted-text">{item.domain}</span>}
-                      </div>
-                      <div className="h-2.5 overflow-hidden border-2 border-border bg-[#eeeeee]">
-                        <div className="h-full border-r-2 border-border bg-accent-neon transition-all duration-300" style={{ width: pct + '%' }} />
-                      </div>
-                    </div>
-                  )
-                })}
+            <Card className="mb-5 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] border-collapse text-sm" dir="rtl">
+                    <thead>
+                      <tr className="border-b-2 border-border bg-muted/40 text-xs font-black">
+                        <th className="sticky right-0 z-10 bg-card px-4 py-3 text-right">برند</th>
+                        <th className="sticky right-[120px] z-10 bg-card px-4 py-3 text-right">مدل</th>
+                        <th className="sticky right-[250px] z-10 bg-card px-4 py-3">میانگین</th>
+                        <th className="sticky right-[340px] z-10 bg-card px-4 py-3">تغییر</th>
+                        <th className="sticky right-[420px] z-10 bg-card px-4 py-3">امروز</th>
+                        <th className="sticky right-[490px] z-10 bg-card px-4 py-3">دیروز</th>
+                        {days.slice(2).map(day => <th key={day} className="px-4 py-3">{day.replace(/-/g, '/')}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(row => (
+                        <tr key={`${row.brand}-${row.ai_model}`} className="border-b border-border/70 hover:bg-muted/30">
+                          <td className="sticky right-0 z-10 bg-card px-4 py-3 font-bold">{row.brand}</td>
+                          <td className="sticky right-[120px] z-10 bg-card px-4 py-3 text-xs text-muted-text">{row.ai_model}</td>
+                          <td className="sticky right-[250px] z-10 bg-card px-4 py-3 text-center font-bold tabular-nums">{row.average?.toFixed(2) ?? '—'}</td>
+                          <td className={`sticky right-[340px] z-10 bg-card px-4 py-3 text-center font-bold tabular-nums ${row.change == null ? 'text-muted-text' : row.change <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {row.change == null ? '—' : `${row.change > 0 ? '+' : ''}${row.change.toFixed(2)}`}
+                          </td>
+                          <td className="sticky right-[420px] z-10 bg-card px-4 py-3 text-center tabular-nums">{row.daily[days[0]] ?? '—'}</td>
+                          <td className="sticky right-[490px] z-10 bg-card px-4 py-3 text-center tabular-nums">{row.daily[days[1]] ?? '—'}</td>
+                          {days.slice(2).map(day => <td key={day} className="px-4 py-3 text-center tabular-nums">{row.daily[day] ?? '—'}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </CardContent>
             </Card>
           )
-        })}
+        })()}
 
-        {rankings.length > 0 && Object.keys(groupedByModel).length === 0 && (
-          <p className="text-sm font-medium text-muted-text">داده‌ای برای نمایش وجود ندارد.</p>
+        {!trends?.items.length && rankings.length === 0 && (
+          <Card className="border-border shadow-[6px_6px_0_var(--color-shadow)]">
+            <CardContent className="py-8 text-center text-sm font-medium text-muted-text">داده‌ای برای نمایش وجود ندارد.</CardContent>
+          </Card>
         )}
         {rankingTotal > 20 && <div className="mb-5 flex gap-2"><Button variant="outline" disabled={rankingPage === 1} onClick={async () => { const page = rankingPage - 1; const result = await getLatestRankings(Number(promptId), { page }); setRankings(result.items); setRankingPage(page) }}>قبلی</Button><Button variant="outline" disabled={rankingPage * 20 >= rankingTotal} onClick={async () => { const page = rankingPage + 1; const result = await getLatestRankings(Number(promptId), { page }); setRankings(result.items); setRankingPage(page) }}>بعدی</Button></div>}
       </Main>
