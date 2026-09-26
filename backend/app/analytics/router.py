@@ -1,8 +1,9 @@
 import json
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone as dt_timezone
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, distinct, func, or_, select
+from sqlalchemy import Date, and_, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_session
 from app.core.config import settings
@@ -28,6 +29,43 @@ def filters(stmt, project_id, prompt_id=None, ai_model_id=None, start=None, end=
 
 def visibility_percent(owned_runs: int, successful_runs: int) -> float:
     return round(owned_runs / successful_runs * 100, 1) if successful_runs else 0.0
+
+RANK_REPORT_MAX_DAYS = 62
+RANK_REPORT_TIMEZONE = ZoneInfo(settings.RUN_TIMEZONE)
+
+def build_rank_report_rows(rows, days: list[str]) -> list[RankReportRow]:
+    grouped: dict[tuple[int, int], dict] = {}
+    for prompt_id, prompt, ai_model_id, ai_model, day, avg_rank, count in rows:
+        entry = grouped.setdefault((prompt_id, ai_model_id), {
+            "prompt_id": prompt_id,
+            "prompt": prompt,
+            "ai_model_id": ai_model_id,
+            "ai_model": ai_model,
+            "daily": {},
+            "weighted": 0.0,
+            "count": 0,
+        })
+        day_key = day.isoformat() if hasattr(day, "isoformat") else str(day)
+        value = float(avg_rank)
+        entry["daily"][day_key] = round(value, 2)
+        entry["weighted"] += value * int(count)
+        entry["count"] += int(count)
+
+    items = []
+    for entry in grouped.values():
+        observed = [day for day in days if day in entry["daily"]]
+        first, last = (entry["daily"][observed[0]], entry["daily"][observed[-1]]) if len(observed) > 1 else (None, None)
+        items.append(RankReportRow(
+            prompt_id=entry["prompt_id"],
+            prompt=entry["prompt"],
+            ai_model_id=entry["ai_model_id"],
+            ai_model=entry["ai_model"],
+            appearances=entry["count"],
+            average_rank=round(entry["weighted"] / entry["count"], 2) if entry["count"] else None,
+            rank_change=round(last - first, 2) if first is not None else None,
+            daily=entry["daily"],
+        ))
+    return sorted(items, key=lambda item: (item.prompt, item.ai_model))
 
 async def owned_prompt(prompt_id: int, session: AsyncSession, user: UserTable) -> Prompt:
     prompt = await session.scalar(
@@ -446,3 +484,52 @@ async def prompt_brand_trends(
             trend=trend,
         ))
     return PromptBrandTrends(prompt_id=prompt.id, items=items)
+
+@router.get("/projects/{project_id}/rank-report", response_model=RankReport)
+async def rank_report(
+    project_id: int,
+    brand_id: int = Query(..., gt=0),
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    await owned_project(project_id, session, user)
+    if start_date > end_date:
+        raise HTTPException(422, "start_date must be before end_date")
+    if (end_date - start_date).days + 1 > RANK_REPORT_MAX_DAYS:
+        raise HTTPException(422, f"date range is limited to {RANK_REPORT_MAX_DAYS} days")
+    start_dt = datetime.combine(start_date, time.min, tzinfo=RANK_REPORT_TIMEZONE).astimezone(dt_timezone.utc)
+    end_dt = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=RANK_REPORT_TIMEZONE).astimezone(dt_timezone.utc)
+    run_day = func.cast(func.timezone(RANK_REPORT_TIMEZONE.key, AIRun.created_at), Date)
+    stmt = (
+        select(
+            Prompt.id.label("prompt_id"),
+            Prompt.text.label("prompt"),
+            AIModel.id.label("ai_model_id"),
+            AIModel.name.label("ai_model"),
+            run_day.label("day"),
+            func.avg(RunBrand.rank).label("avg_rank"),
+            func.count(RunBrand.id).label("appearances"),
+        )
+        .select_from(RunBrand)
+        .join(AIRun, AIRun.id == RunBrand.ai_run_id)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(AIModel, AIModel.id == AIRun.ai_model_id)
+        .where(
+            RunBrand.brand_id == brand_id,
+            Prompt.project_id == project_id,
+            AIRun.created_at >= start_dt,
+            AIRun.created_at < end_dt,
+        )
+        .group_by(Prompt.id, Prompt.text, AIModel.id, AIModel.name, run_day)
+    )
+    rows = (await session.execute(stmt)).all()
+    days = [(start_date + timedelta(days=offset)).isoformat() for offset in range((end_date - start_date).days + 1)]
+    return RankReport(
+        brand_id=brand_id,
+        start_date=start_date,
+        end_date=end_date,
+        days=days,
+        items=build_rank_report_rows(rows, days),
+    )

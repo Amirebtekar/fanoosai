@@ -170,6 +170,30 @@ export function getProjectReferences(projectId: number, params: { prompt_id?: nu
   return authRequest('GET', '/projects/' + projectId + '/references' + suffix)
 }
 
+export interface RankReportRow {
+  prompt_id: number
+  prompt: string
+  ai_model_id: number
+  ai_model: string
+  appearances: number
+  average_rank: number | null
+  rank_change: number | null
+  daily: Record<string, number>
+}
+
+export interface RankReport {
+  brand_id: number
+  start_date: string
+  end_date: string
+  days: string[]
+  items: RankReportRow[]
+}
+
+export function getRankReport(projectId: number, params: { brand_id: number; start_date: string; end_date: string }): Promise<RankReport> {
+  const query = new URLSearchParams({ brand_id: String(params.brand_id), start_date: params.start_date, end_date: params.end_date })
+  return authRequest('GET', `/projects/${projectId}/rank-report?${query}`)
+}
+
 export function listAIModels(): Promise<AIModelRead[]> { return authRequest('GET', '/ai-models') }
 export function logout(): Promise<void> { return authRequest('POST', '/auth/jwt/logout') }
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from pydantic import BaseModel
 
 class DashboardSummary(BaseModel):
@@ -123,6 +123,23 @@ class BrandDetails(BaseModel):
     worst_rank: int | None
     first_seen: datetime | None
     last_seen: datetime | None
+
+class RankReportRow(BaseModel):
+    prompt_id: int
+    prompt: str
+    ai_model_id: int
+    ai_model: str
+    appearances: int
+    average_rank: float | None = None
+    rank_change: float | None = None
+    daily: dict[str, float]
+
+class RankReport(BaseModel):
+    brand_id: int
+    start_date: date
+    end_date: date
+    days: list[str]
+    items: list[RankReportRow]
 
 class Page(BaseModel):
     items: list

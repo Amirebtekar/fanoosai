@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { BrandTrendChart } from '@/features/prompts/brand-trend-chart'
+import { RankReport } from '@/features/analytics/rank-report'
 
 const RANK_BG: Record<number, string> = { 1: '#ef4444', 2: '#dc2626', 3: '#b91c1c' }
 
@@ -73,12 +74,10 @@ export function AnalyticsPage() {
   return (
     <div className="min-h-full bg-bg font-vazirmatn" dir="rtl">
       <Header fixed className="bg-bg">
-        <h1 className="text-lg font-black">آنالیز برند</h1>
+        <h1 className="text-lg font-black">آنالیتیکس</h1>
       </Header>
       <Main fixed>
-        <p className="mb-6 text-sm font-medium text-muted-text">پرامپت مورد نظر را انتخاب کنید تا رتبه برندها را مشاهده کنید.</p>
-
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row">
+        <div className="mb-6">
           <Select value={selectedProject} onValueChange={v => { setSelectedProject(v); setSelectedPrompt(''); setPrompts([]); setRankings([]); setTrends(null) }}>
             <SelectTrigger aria-label='انتخاب پروژه' className="w-full border-border font-medium sm:w-[280px]">
               <SelectValue placeholder="انتخاب پروژه..." />
@@ -87,7 +86,11 @@ export function AnalyticsPage() {
               {projects.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>)}
             </SelectContent>
           </Select>
+        </div>
 
+        <p className="mb-6 text-sm font-medium text-muted-text">پرامپت مورد نظر را انتخاب کنید تا رتبه برندها را مشاهده کنید.</p>
+
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row">
           <Select value={displayedPromptId} onValueChange={setSelectedPrompt} disabled={!selectedProject}>
             <SelectTrigger aria-label='انتخاب پرامپت' className="w-full border-border font-medium sm:w-[320px]">
               <SelectValue placeholder="انتخاب پرامپت..." />
@@ -177,6 +180,10 @@ export function AnalyticsPage() {
             ))}
           </div>
         )}
+
+        <hr className="my-8 border-border" />
+
+        <RankReport projectId={selectedProject ? Number(selectedProject) : 0} />
       </Main>
     </div>
   )

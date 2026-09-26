@@ -85,3 +85,29 @@
     height: 0;
   }
 }
+
+@media print {
+  [data-sidebar='sidebar'],
+  [data-sidebar='trigger'],
+  .no-print {
+    display: none !important;
+  }
+  [data-slot='sidebar-inset'] {
+    padding-inline-start: 0 !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  [data-slot='sidebar-inset'],
+  [data-slot='sidebar-inset'] * {
+    color: #111 !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+  [data-slot='sidebar-inset'] .print-accent-good {
+    color: #15803d !important;
+  }
+  [data-slot='sidebar-inset'] .print-accent-bad {
+    color: #b91c1c !important;
+  }
+}
