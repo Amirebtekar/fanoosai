@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import List
 
@@ -23,8 +24,11 @@ from app.projects.schema import PromptCreate, PromptRead
 from app.projects.ai_models_schema import AIModelRead
 from app.projects.ai_runs_schema import AIRunResult, PromptModelExecutionAvailability
 from app.auth.fastapi_users import fastapi_users
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+_manual_run_lock = asyncio.Lock()
+_manual_last_request_at = 0.0
 
 router = APIRouter(prefix="/projects/{project_id}/prompts", tags=["prompts"])
 
@@ -240,7 +244,17 @@ async def _execute_prompt_run(prompt_id: int, ai_model_id: int | None) -> None:
             if ai_model_id is not None:
                 await run_service.run_prompt_model(prompt, ai_model_id, source="manual")
             else:
-                await run_service.run_prompt_models(prompt, source="manual")
+                global _manual_last_request_at
+                for link in prompt.models:
+                    async with _manual_run_lock:
+                        wait = settings.WORKER_REQUEST_DELAY_SECONDS - (asyncio.get_running_loop().time() - _manual_last_request_at)
+                        if wait > 0:
+                            await asyncio.sleep(wait)
+                        _manual_last_request_at = asyncio.get_running_loop().time()
+                        try:
+                            await run_service.run_prompt_model(prompt, link.model.id, source="manual")
+                        except Exception:
+                            logger.exception("prompt_manual_model_failed", extra={"event_data": {"prompt_id": prompt.id, "ai_model_id": link.model.id}})
     except Exception:
         logger.exception("prompt_run_background_failed", extra={"event_data": {"prompt_id": prompt_id, "ai_model_id": ai_model_id}})
 

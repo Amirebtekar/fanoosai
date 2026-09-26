@@ -50,7 +50,10 @@ class AIRunService:
     ) -> list[dict]:
         results = []
         for link in prompt.models:
-            results.extend(await self.run_prompt_model(prompt, link.model.id, now=now, source=source, run_attempt=run_attempt))
+            try:
+                results.extend(await self.run_prompt_model(prompt, link.model.id, now=now, source=source, run_attempt=run_attempt))
+            except Exception as exc:
+                logger.exception("prompt_model_run_failed", extra={"event_data": {"prompt_id": prompt.id, "ai_model_id": link.model.id, "error": str(exc)}})
         return results
 
     async def execution_availability(
