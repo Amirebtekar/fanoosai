@@ -189,8 +189,9 @@ export function PromptAnalyticsPage() {
         </div>
       </Header>
       <Main>
+        <div className="flex flex-col gap-6">
         {prompt && (
-          <Card className="mb-6 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+          <Card className="order-1 border-border shadow-[6px_6px_0_var(--color-shadow)]">
             <CardContent className="py-4">
               <p className="whitespace-pre-wrap text-sm font-medium leading-relaxed">{prompt.text}</p>
             </CardContent>
@@ -198,7 +199,7 @@ export function PromptAnalyticsPage() {
         )}
 
         {allTrends && allTrends.items.length > 0 && (
-          <div className="mb-6 space-y-4">
+          <div className="order-3 space-y-4">
             <Card className="border-border/70 bg-card/95 shadow-lg">
               <CardHeader className="gap-4 border-b border-border/70 pb-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -262,12 +263,11 @@ export function PromptAnalyticsPage() {
                 </div>
               </CardContent>
             </Card>
-            {trends && trends.items.length > 0 ? <BrandTrendChart items={trends.items} /> : <Card className="border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardContent className="py-10 text-center text-sm font-medium text-muted-text">برای این فیلتر داده‌ای پیدا نشد.</CardContent></Card>}
           </div>
         )}
 
-        <Card className="mb-6 border-border shadow-[6px_6px_0_var(--color-shadow)]">
-          <CardHeader className="gap-3 border-b border-border/70">
+          <Card className="order-6 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+            <CardHeader className="gap-3 border-b border-border/70">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-start gap-3">
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -312,7 +312,7 @@ export function PromptAnalyticsPage() {
           </CardContent>
         </Card>
 
-        <Card className="mb-6 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+        <Card className="order-2 border-border shadow-[6px_6px_0_var(--color-shadow)]">
           <CardHeader className="gap-2 border-b border-border/70">
             <div className="flex items-start gap-3">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -378,7 +378,7 @@ export function PromptAnalyticsPage() {
           }).sort((a, b) => (a.average ?? 999) - (b.average ?? 999))
 
           return (
-            <Card className="mb-5 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+            <Card className="order-4 border-border shadow-[6px_6px_0_var(--color-shadow)]">
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[900px] border-collapse text-sm" dir="rtl">
@@ -415,13 +415,20 @@ export function PromptAnalyticsPage() {
           )
         })()}
 
+        {trends && trends.items.length > 0 && (
+          <div className="order-5">
+            <BrandTrendChart items={trends.items} />
+          </div>
+        )}
+
         {!trends?.items.length && rankings.length === 0 && (
           <Card className="border-border shadow-[6px_6px_0_var(--color-shadow)]">
             <CardContent className="py-8 text-center text-sm font-medium text-muted-text">داده‌ای برای نمایش وجود ندارد.</CardContent>
           </Card>
         )}
-        {rankingTotal > 20 && <div className="mb-5 flex gap-2"><Button variant="outline" disabled={rankingPage === 1} onClick={async () => { const page = rankingPage - 1; const result = await getLatestRankings(Number(promptId), { page }); setRankings(result.items); setRankingPage(page) }}>قبلی</Button><Button variant="outline" disabled={rankingPage * 20 >= rankingTotal} onClick={async () => { const page = rankingPage + 1; const result = await getLatestRankings(Number(promptId), { page }); setRankings(result.items); setRankingPage(page) }}>بعدی</Button></div>}
-      </Main>
+        {rankingTotal > 20 && <div className="order-4 flex gap-2"><Button variant="outline" disabled={rankingPage === 1} onClick={async () => { const page = rankingPage - 1; const result = await getLatestRankings(Number(promptId), { page }); setRankings(result.items); setRankingPage(page) }}>قبلی</Button><Button variant="outline" disabled={rankingPage * 20 >= rankingTotal} onClick={async () => { const page = rankingPage + 1; const result = await getLatestRankings(Number(promptId), { page }); setRankings(result.items); setRankingPage(page) }}>بعدی</Button></div>}
+        </div>
+       </Main>
     </div>
   )
 }
