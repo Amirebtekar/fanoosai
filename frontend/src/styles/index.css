@@ -110,4 +110,27 @@
   [data-slot='sidebar-inset'] .print-accent-bad {
     color: #b91c1c !important;
   }
+  body.printing-rank-report .prompt-analytics-page > header,
+  body.printing-rank-report .prompt-analytics-sections > :not(#prompt-rank-report) {
+    display: none !important;
+  }
+  body.printing-rank-report #prompt-rank-report {
+    display: block !important;
+    border: 0 !important;
+    padding: 0 !important;
+  }
+  body.printing-rank-report #prompt-rank-report .rank-report-scroll {
+    overflow: visible !important;
+  }
+  body.printing-rank-report #prompt-rank-report .rank-report-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 8pt !important;
+  }
+  body.printing-rank-report #prompt-rank-report .rank-report-table th,
+  body.printing-rank-report #prompt-rank-report .rank-report-table td {
+    position: static !important;
+    padding: 4px !important;
+    white-space: normal !important;
+  }
 }

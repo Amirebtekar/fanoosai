@@ -1,19 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
-import { format } from 'date-fns'
+import { addDays, format } from 'date-fns'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { DatePicker } from '@/components/date-picker'
+import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { toast } from 'sonner'
-import { ExternalLink, FileText, Link2, Loader2, RotateCcw, SlidersHorizontal } from 'lucide-react'
+import { ExternalLink, FileText, Link2, Loader2, Printer, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Badge } from '@/components/ui/badge'
-import { getProjectReferences, getPromptBrandTrends, getLatestRankings, getPromptHistory, listPrompts, getErrorMessage, type ProjectReference, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
+import { getProjectReferences, getPromptBrandTrends, getLatestRankings, getPromptHistory, listProjects, listPrompts, getErrorMessage, type ProjectRead, type ProjectReference, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
 import { BrandTrendChart } from './brand-trend-chart'
+import { buildRankTableRows, rankReportDays, tehranDateKey } from './rank-report-utils'
 
 export function modelResponseText(responseText: string | null): string {
   if (!responseText) return 'برای این اجرا پاسخی ثبت نشده است.'
@@ -55,6 +57,8 @@ export function PromptAnalyticsPage() {
   const { projectId, promptId } = useParams({ from: '/_authenticated/projects_/$projectId/prompts/$promptId' })
   const navigate = useNavigate()
   const [prompt, setPrompt] = useState<PromptRead | null>(null)
+  const [projects, setProjects] = useState<ProjectRead[]>([])
+  const [promptOptions, setPromptOptions] = useState<PromptRead[]>([])
   const [rankings, setRankings] = useState<PromptRankingItem[]>([])
   const [trends, setTrends] = useState<PromptBrandTrends | null>(null)
   const [allTrends, setAllTrends] = useState<PromptBrandTrends | null>(null)
@@ -74,17 +78,35 @@ export function PromptAnalyticsPage() {
   const [historyDate, setHistoryDate] = useState<Date>()
   const [historyLoading, setHistoryLoading] = useState(false)
   const [rankingPage, setRankingPage] = useState(1)
+  const [tableModel, setTableModel] = useState('all')
+  const [tableBrand, setTableBrand] = useState('all')
+  const [tablePrompt, setTablePrompt] = useState(String(promptId))
+  const [tableRange, setTableRange] = useState('7')
+  const [tableStartDate, setTableStartDate] = useState<Date>(() => {
+    const [year, month, day] = tehranDateKey(new Date()).split('-').map(Number)
+    return addDays(new Date(year, month - 1, day), -6)
+  })
+  const [tableEndDate, setTableEndDate] = useState<Date>(() => {
+    const [year, month, day] = tehranDateKey(new Date()).split('-').map(Number)
+    return new Date(year, month - 1, day)
+  })
+  const [tableSearch, setTableSearch] = useState('')
+  const [tableProjectChanging, setTableProjectChanging] = useState(false)
   const [rankingTotal, setRankingTotal] = useState(0)
 
   const fetchData = useCallback(async () => {
     try {
-      const [promptsData, rankingsData, trendData, referenceData] = await Promise.all([
+      const [projectsData, promptsData, rankingsData, trendData, referenceData] = await Promise.all([
+        listProjects(),
         listPrompts(Number(projectId)),
         getLatestRankings(Number(promptId)),
         getPromptBrandTrends(Number(promptId)),
         getProjectReferences(Number(projectId), { prompt_id: Number(promptId) }),
       ])
       const initialTrend = defaultTrendSelection(trendData)
+      setProjects(projectsData)
+      setPromptOptions(promptsData)
+      setTablePrompt(String(promptId))
       setPrompt(promptsData.find(p => p.id === Number(promptId)) || null)
       setRankings(rankingsData.items); setRankingTotal(rankingsData.total)
       setSelectedModel(initialTrend.modelId)
@@ -168,7 +190,48 @@ export function PromptAnalyticsPage() {
 
   const modelOptions = [...new Map((allTrends?.items ?? []).map(item => [item.ai_model_id, item.ai_model])).entries()]
   const brandOptions = [...new Map((allTrends?.items ?? []).map(item => [item.brand_id, item.brand])).entries()]
+  const todayKey = tehranDateKey(new Date())
+  const [todayYear, todayMonth, todayDay] = todayKey.split('-').map(Number)
+  const tehranToday = new Date(todayYear, todayMonth - 1, todayDay)
+  const yesterdayKey = format(addDays(tehranToday, -1), 'yyyy-MM-dd')
+  const tableDateError = tableStartDate > tableEndDate
+  const tableDays = tableDateError ? [] : rankReportDays(tableStartDate, tableEndDate)
+  const tableRows = buildRankTableRows(allTrends?.items ?? [], tableDays, todayKey, yesterdayKey, tableModel, tableBrand, tableSearch)
   const activeFilterCount = [Boolean(selectedModel), selectedBrand !== 'all', Boolean(startDate), Boolean(endDate)].filter(Boolean).length
+
+  const setPresetRange = (range: string) => {
+    setTableRange(range)
+    if (range === 'custom') return
+    const end = tehranToday
+    setTableEndDate(end)
+    setTableStartDate(addDays(end, 1 - Number(range)))
+  }
+
+  const changeReportProject = async (value: string) => {
+    if (value === String(projectId)) return
+    setTableProjectChanging(true)
+    try {
+      const projectPrompts = await listPrompts(Number(value))
+      const nextPrompt = projectPrompts[0]
+      if (!nextPrompt) {
+        toast.error('برای این پروژه پرامپتی ثبت نشده است')
+        return
+      }
+      await navigate({ to: `/projects/${value}/prompts/${nextPrompt.id}` })
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'دریافت پرامپت‌های پروژه ممکن نشد'))
+    } finally {
+      setTableProjectChanging(false)
+    }
+  }
+
+  const printRankReport = () => {
+    const className = 'printing-rank-report'
+    const cleanup = () => document.body.classList.remove(className)
+    document.body.classList.add(className)
+    window.addEventListener('afterprint', cleanup, { once: true })
+    window.print()
+  }
 
   if (loading) return (
     <div className="min-h-full bg-bg p-6 font-vazirmatn" dir="rtl">
@@ -179,7 +242,7 @@ export function PromptAnalyticsPage() {
   )
 
   return (
-    <div className="min-h-full bg-bg font-vazirmatn" dir="rtl">
+    <div className="prompt-analytics-page min-h-full bg-bg font-vazirmatn" dir="rtl">
       <Header fixed className="bg-bg">
         <div className="flex items-center gap-3">
           <Button variant="outline" onClick={() => navigate({ to: '/projects/' + projectId })} className="border-border font-bold">
@@ -189,7 +252,7 @@ export function PromptAnalyticsPage() {
         </div>
       </Header>
       <Main>
-        <div className="flex flex-col gap-6">
+        <div className="prompt-analytics-sections flex flex-col gap-6">
         {prompt && (
           <Card className="order-1 border-border shadow-[6px_6px_0_var(--color-shadow)]">
             <CardContent className="py-4">
@@ -363,57 +426,105 @@ export function PromptAnalyticsPage() {
           </CardContent>
         </Card>
 
-        {trends && trends.items.length > 0 && (() => {
-          const points = trends.items.flatMap(item => item.points.map(point => point.date.slice(0, 10)))
-          const days = [...new Set(points)].sort().slice(-7).reverse()
-          const rows = trends.items.map(item => {
-            const values = item.points
-              .filter(point => days.includes(point.date.slice(0, 10)))
-              .sort((a, b) => a.date.localeCompare(b.date))
-            const ranks = values.map(point => point.rank)
-            const daily = Object.fromEntries(values.map(point => [point.date.slice(0, 10), point.rank]))
-            const first = ranks[0]
-            const last = ranks[ranks.length - 1]
-            return { ...item, daily, average: ranks.length ? ranks.reduce((sum, rank) => sum + rank, 0) / ranks.length : null, change: first != null && last != null && ranks.length > 1 ? last - first : null }
-          }).sort((a, b) => (a.average ?? 999) - (b.average ?? 999))
-
-          return (
-            <Card className="order-4 border-border shadow-[6px_6px_0_var(--color-shadow)]">
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] border-collapse text-sm" dir="rtl">
-                    <thead>
-                      <tr className="border-b-2 border-border bg-muted/40 text-xs font-black">
-                        <th className="sticky right-0 z-10 bg-card px-4 py-3 text-right">برند</th>
-                        <th className="sticky right-[120px] z-10 bg-card px-4 py-3 text-right">مدل</th>
-                        <th className="sticky right-[250px] z-10 bg-card px-4 py-3">میانگین</th>
-                        <th className="sticky right-[340px] z-10 bg-card px-4 py-3">تغییر</th>
-                        <th className="sticky right-[420px] z-10 bg-card px-4 py-3">امروز</th>
-                        <th className="sticky right-[490px] z-10 bg-card px-4 py-3">دیروز</th>
-                        {days.slice(2).map(day => <th key={day} className="px-4 py-3">{day.replace(/-/g, '/')}</th>)}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map(row => (
-                        <tr key={`${row.brand}-${row.ai_model}`} className="border-b border-border/70 hover:bg-muted/30">
-                          <td className="sticky right-0 z-10 bg-card px-4 py-3 font-bold">{row.brand}</td>
-                          <td className="sticky right-[120px] z-10 bg-card px-4 py-3 text-xs text-muted-text">{row.ai_model}</td>
-                          <td className="sticky right-[250px] z-10 bg-card px-4 py-3 text-center font-bold tabular-nums">{row.average?.toFixed(2) ?? '—'}</td>
-                          <td className={`sticky right-[340px] z-10 bg-card px-4 py-3 text-center font-bold tabular-nums ${row.change == null ? 'text-muted-text' : row.change <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {row.change == null ? '—' : `${row.change > 0 ? '+' : ''}${row.change.toFixed(2)}`}
-                          </td>
-                          <td className="sticky right-[420px] z-10 bg-card px-4 py-3 text-center tabular-nums">{row.daily[days[0]] ?? '—'}</td>
-                          <td className="sticky right-[490px] z-10 bg-card px-4 py-3 text-center tabular-nums">{row.daily[days[1]] ?? '—'}</td>
-                          {days.slice(2).map(day => <td key={day} className="px-4 py-3 text-center tabular-nums">{row.daily[day] ?? '—'}</td>)}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+        {allTrends && allTrends.items.length > 0 && (
+          <Card id="prompt-rank-report" className="order-4 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+            <CardHeader className="gap-3 border-b border-border/70">
+              <CardTitle className="text-base font-black">گزارش رتبه برندها</CardTitle>
+              <CardDescription className="text-sm font-medium text-muted-text">میانگین رتبهٔ روزانه در بازهٔ انتخاب‌شده نمایش داده می‌شود؛ رتبهٔ کمتر بهتر است.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 p-4">
+              <div className="no-print grid gap-3 rounded-lg border border-border/70 bg-muted/20 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid min-w-0 gap-1.5">
+                  <label htmlFor="rank-table-project" className="text-xs font-bold">پروژه</label>
+                  <Select value={String(projectId)} disabled={tableProjectChanging} onValueChange={value => void changeReportProject(value)}>
+                    <SelectTrigger id="rank-table-project" className="h-10 border-border bg-background"><SelectValue placeholder="انتخاب پروژه" /></SelectTrigger>
+                    <SelectContent>{projects.map(item => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
-              </CardContent>
-            </Card>
-          )
-        })()}
+                <div className="grid min-w-0 gap-1.5">
+                  <label htmlFor="rank-table-range" className="text-xs font-bold">بازهٔ زمانی</label>
+                  <Select value={tableRange} onValueChange={setPresetRange}>
+                    <SelectTrigger id="rank-table-range" className="h-10 border-border bg-background"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2">از دیروز تا امروز</SelectItem>
+                      <SelectItem value="7">۷ روز گذشته</SelectItem>
+                      <SelectItem value="15">۱۵ روز گذشته</SelectItem>
+                      <SelectItem value="30">۳۰ روز گذشته</SelectItem>
+                      <SelectItem value="90">۹۰ روز گذشته</SelectItem>
+                      <SelectItem value="custom">تاریخ دلخواه</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {tableRange === 'custom' && <>
+                  <div className="grid min-w-0 gap-1.5"><span className="text-xs font-bold">از تاریخ</span><DatePicker selected={tableStartDate} onSelect={date => date && setTableStartDate(date)} placeholder="تاریخ شروع" /></div>
+                  <div className="grid min-w-0 gap-1.5"><span className="text-xs font-bold">تا تاریخ</span><DatePicker selected={tableEndDate} onSelect={date => date && setTableEndDate(date)} placeholder="تاریخ پایان" /></div>
+                </>}
+                <div className="grid min-w-0 gap-1.5">
+                  <label htmlFor="rank-table-prompt" className="text-xs font-bold">پرامپت</label>
+                  <Select value={tablePrompt} onValueChange={value => navigate({ to: `/projects/${projectId}/prompts/${value}` })}>
+                    <SelectTrigger id="rank-table-prompt" className="h-10 border-border bg-background"><SelectValue placeholder="انتخاب پرامپت" /></SelectTrigger>
+                    <SelectContent>{promptOptions.map(item => <SelectItem key={item.id} value={String(item.id)}>{item.text.slice(0, 55)}{item.text.length > 55 ? '...' : ''}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="grid min-w-0 gap-1.5">
+                  <label htmlFor="rank-table-model" className="text-xs font-bold">مدل</label>
+                  <Select value={tableModel} onValueChange={setTableModel}>
+                    <SelectTrigger id="rank-table-model" className="h-10 border-border bg-background"><SelectValue placeholder="همه مدل‌ها" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">همه مدل‌ها</SelectItem>{modelOptions.map(([id, name]) => <SelectItem key={id} value={String(id)}>{name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="grid min-w-0 gap-1.5">
+                  <label htmlFor="rank-table-brand" className="text-xs font-bold">برند</label>
+                  <Select value={tableBrand} onValueChange={setTableBrand}>
+                    <SelectTrigger id="rank-table-brand" className="h-10 border-border bg-background"><SelectValue placeholder="همه برندها" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">همه برندها</SelectItem>{brandOptions.map(([id, name]) => <SelectItem key={id} value={String(id)}>{name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="no-print relative min-w-56 flex-1">
+                  <Search className="pointer-events-none absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-text" aria-hidden="true" />
+                  <Input value={tableSearch} onChange={event => setTableSearch(event.target.value)} placeholder="جستجوی برند یا مدل..." className="pe-9" aria-label="جستجو در جدول رتبه‌ها" />
+                </div>
+                <div className="hidden text-xs text-muted-text print:block">
+                  پروژه: {projects.find(item => String(item.id) === String(projectId))?.name ?? projectId}؛ بازه: {tableDays[tableDays.length - 1]?.replace(/-/g, '/')} تا {tableDays[0]?.replace(/-/g, '/')}; مدل: {tableModel === 'all' ? 'همه' : modelOptions.find(([id]) => String(id) === tableModel)?.[1]}; برند: {tableBrand === 'all' ? 'همه' : brandOptions.find(([id]) => String(id) === tableBrand)?.[1]}
+                </div>
+                <Button type="button" variant="outline" className="no-print" onClick={printRankReport} aria-label="ذخیره گزارش به PDF" title="در پنجرهٔ چاپ، ذخیره به‌صورت PDF را انتخاب کنید"><Printer className="me-2 size-4" aria-hidden="true" />دریافت PDF</Button>
+                <Button type="button" variant="ghost" className="no-print" onClick={() => { setTableModel('all'); setTableBrand('all'); setTableSearch(''); setPresetRange('7') }}>پاک کردن فیلترها</Button>
+              </div>
+              {tableDateError && <p role="alert" className="text-sm font-bold text-destructive">تاریخ شروع باید قبل از تاریخ پایان باشد.</p>}
+              <div className="rank-report-scroll overflow-x-auto">
+                <table className="rank-report-table w-full min-w-[1000px] border-collapse text-sm" dir="rtl">
+                  <thead>
+                    <tr className="border-b-2 border-border bg-muted/40 text-xs font-black">
+                      <th className="sticky right-0 z-10 bg-card px-4 py-3 text-right">برند</th>
+                      <th className="sticky right-[120px] z-10 bg-card px-4 py-3 text-right">مدل</th>
+                      <th className="sticky right-[250px] z-10 bg-card px-4 py-3">میانگین رتبه</th>
+                      <th className="sticky right-[350px] z-10 bg-card px-4 py-3">تغییر</th>
+                      <th className="sticky right-[430px] z-10 bg-card px-4 py-3">امروز</th>
+                      <th className="sticky right-[500px] z-10 bg-card px-4 py-3">دیروز</th>
+                      {tableDays.slice(2).map(day => <th key={day} className="px-4 py-3">{day.replace(/-/g, '/')}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map(row => (
+                      <tr key={`${row.brand_id}-${row.ai_model_id}`} className="border-b border-border/70 hover:bg-muted/30">
+                        <td className="sticky right-0 z-10 bg-card px-4 py-3 font-bold">{row.brand}</td>
+                        <td className="sticky right-[120px] z-10 bg-card px-4 py-3 text-xs text-muted-text">{row.ai_model}</td>
+                        <td className="sticky right-[250px] z-10 bg-card px-4 py-3 text-center font-bold tabular-nums">{row.average.toFixed(2)}</td>
+                        <td className={`sticky right-[350px] z-10 bg-card px-4 py-3 text-center font-bold tabular-nums ${row.change == null ? 'text-muted-text' : row.change <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{row.change == null ? '—' : `${row.change > 0 ? '+' : ''}${row.change.toFixed(2)}`}</td>
+                        <td className="sticky right-[430px] z-10 bg-card px-4 py-3 text-center tabular-nums">{row.today ?? '—'}</td>
+                        <td className="sticky right-[500px] z-10 bg-card px-4 py-3 text-center tabular-nums">{row.yesterday ?? '—'}</td>
+                        {tableDays.slice(2).map(day => <td key={day} className="px-4 py-3 text-center tabular-nums">{row.daily[day] ?? '—'}</td>)}
+                      </tr>
+                    ))}
+                    {!tableDateError && tableRows.length === 0 && <tr><td colSpan={6 + Math.max(0, tableDays.length - 2)} className="px-4 py-10 text-center text-sm font-medium text-muted-text">برای فیلترهای انتخاب‌شده داده‌ای وجود ندارد.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {trends && trends.items.length > 0 && (
           <div className="order-5">
