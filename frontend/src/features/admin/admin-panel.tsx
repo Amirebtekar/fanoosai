@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getAdminCosts, getAdminOverview, getErrorMessage, getExtractionSettings, listAdminModels, listAdminPrompts, listAdminReferences, resetExtractionSettings, saveModelSelection, setAdminPromptActive, syncGatewayModels, updateExtractionSettings, type AdminCostItem, type AdminOverview, type AdminPromptRead, type AdminReference, type AIModelRead, type ExtractionSettings, type GatewayModel } from '@/lib/api'
+import { getAdminCosts, getAdminOverview, getErrorMessage, getExtractionSettings, listAdminBrands, listAdminModels, listAdminPrompts, listAdminReferences, mergeAdminBrands, previewAdminBrandMerge, resetExtractionSettings, saveModelSelection, setAdminPromptActive, syncGatewayModels, updateExtractionSettings, type AdminBrand, type AdminCostItem, type AdminOverview, type AdminPromptRead, type AdminReference, type AIModelRead, type BrandMergePreview, type ExtractionSettings, type GatewayModel } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -38,12 +41,14 @@ function AdminPanel() {
           <TabsTrigger value="prompts" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">پرامپت‌ها</TabsTrigger>
           <TabsTrigger value="extraction" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">تنظیمات استخراج</TabsTrigger>
           <TabsTrigger value="references" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">رفرنس‌ها</TabsTrigger>
+          <TabsTrigger value="brands" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">برندها</TabsTrigger>
           <TabsTrigger value="costs" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">هزینه‌ها</TabsTrigger>
         </TabsList>
         <TabsContent value="models"><ModelsTab onLoaded={loadOverview} /></TabsContent>
         <TabsContent value="prompts"><PromptsTab onLoaded={loadOverview} /></TabsContent>
         <TabsContent value="extraction"><ExtractionTab /></TabsContent>
         <TabsContent value="references"><ReferencesTab /></TabsContent>
+        <TabsContent value="brands"><BrandsTab /></TabsContent>
         <TabsContent value="costs"><CostsTab /></TabsContent>
       </Tabs>
     </div>
@@ -343,6 +348,148 @@ function ExtractionTab() {
           <Button variant="outline" onClick={reset} className="mr-auto border-border font-bold">بازگشت به پیش‌فرض</Button>
         </div>
       </div>
+    </section>
+  )
+}
+
+function BrandsTab() {
+  const [brands, setBrands] = useState<AdminBrand[]>([])
+  const [canonicalId, setCanonicalId] = useState('')
+  const [sourceIds, setSourceIds] = useState<number[]>([])
+  const [preview, setPreview] = useState<BrandMergePreview | null>(null)
+  const [previewKey, setPreviewKey] = useState('')
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [previewing, setPreviewing] = useState(false)
+  const [merging, setMerging] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      const result = await listAdminBrands()
+      setBrands(result)
+      setCanonicalId(current => result.some(brand => String(brand.id) === current) ? current : '')
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'خطا در دریافت برندها'))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+  useEffect(() => { void Promise.resolve().then(load) }, [load])
+
+  const currentKey = JSON.stringify([Number(canonicalId), [...sourceIds].sort((a, b) => a - b)])
+  const filtered = brands.filter(brand => `${brand.name} ${brand.domain}`.toLowerCase().includes(search.trim().toLowerCase()))
+  const selectedCanonical = brands.find(brand => String(brand.id) === canonicalId)
+  const previewIsCurrent = Boolean(preview && previewKey === currentKey)
+
+  const updateSources = (next: number[]) => {
+    setSourceIds(next)
+    setPreview(null)
+  }
+
+  const previewMerge = async () => {
+    if (!canonicalId || sourceIds.length === 0) return
+    setPreviewing(true)
+    setPreview(null)
+    try {
+      const result = await previewAdminBrandMerge({ canonical_id: Number(canonicalId), source_ids: sourceIds })
+      setPreview(result)
+      setPreviewKey(currentKey)
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'پیش‌نمایش ادغام ناموفق بود'))
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  const merge = async () => {
+    if (!previewIsCurrent) return
+    setMerging(true)
+    try {
+      const result = await mergeAdminBrands({ canonical_id: Number(canonicalId), source_ids: sourceIds })
+      toast.success(`${result.merged_ids.length.toLocaleString('fa-IR')} برند در «${result.canonical.name}» ادغام شد`)
+      setConfirmOpen(false)
+      setSourceIds([])
+      setPreview(null)
+      setPreviewKey('')
+      await load()
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'ادغام برندها انجام نشد'))
+    } finally {
+      setMerging(false)
+    }
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="border border-border bg-card p-4 text-sm leading-6 text-muted-text">
+        چند نام متفاوت را به یک برند اصلی وصل کنید. نام‌های قبلی و دامنه‌ها حفظ می‌شوند و در استخراج‌های بعدی هم به برند اصلی متصل خواهند شد.
+      </div>
+      <div className="grid gap-3 border-2 border-border bg-card p-4 md:grid-cols-[minmax(0,1fr)_minmax(16rem,24rem)] md:items-end">
+        <label className="grid gap-2 text-sm font-bold">
+          جستجوی برند
+          <Input value={search} onChange={event => setSearch(event.target.value)} placeholder="نام یا دامنه..." />
+        </label>
+        <label className="grid gap-2 text-sm font-bold">
+          برند اصلی که حفظ می‌شود
+          <Select value={canonicalId} disabled={previewing || merging} onValueChange={value => { setCanonicalId(value); updateSources(sourceIds.filter(id => String(id) !== value)) }}>
+            <SelectTrigger className="border-border bg-background"><SelectValue placeholder="انتخاب برند اصلی" /></SelectTrigger>
+            <SelectContent>
+              {brands.map(brand => <SelectItem key={brand.id} value={String(brand.id)}>{brand.name} — {brand.domain}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </label>
+      </div>
+      <div className="overflow-x-auto border-2 border-border bg-card">
+        <Table>
+          <TableHeader><TableRow><TableHead>انتخاب برای ادغام</TableHead><TableHead>برند</TableHead><TableHead>دامنه</TableHead><TableHead>رکورد رتبه</TableHead><TableHead>پروژه</TableHead><TableHead>نام مستعار</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {loading ? <TableRow><TableCell colSpan={6} className="py-8 text-center">در حال دریافت برندها...</TableCell></TableRow> : filtered.length === 0 ? <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-text">برندی پیدا نشد.</TableCell></TableRow> : filtered.map(brand => {
+              const checked = sourceIds.includes(brand.id)
+              const isCanonical = String(brand.id) === canonicalId
+              return <TableRow key={brand.id}>
+                <TableCell><input type="checkbox" aria-label={`ادغام ${brand.name}`} checked={checked} disabled={isCanonical || previewing || merging} onChange={event => updateSources(event.target.checked ? [...sourceIds, brand.id] : sourceIds.filter(id => id !== brand.id))} className="size-4 accent-primary disabled:opacity-40" /></TableCell>
+                <TableCell className="font-bold">{brand.name}{isCanonical && <Badge className="ms-2">اصلی</Badge>}</TableCell>
+                <TableCell dir="ltr" className="text-start text-xs">{brand.domain}</TableCell>
+                <TableCell>{brand.run_links.toLocaleString('fa-IR')}</TableCell>
+                <TableCell>{brand.project_links.toLocaleString('fa-IR')}</TableCell>
+                <TableCell>{brand.aliases.toLocaleString('fa-IR')}</TableCell>
+              </TableRow>
+            })}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="button" variant="outline" disabled={!canonicalId || sourceIds.length === 0 || previewing || merging} onClick={previewMerge}>
+          {previewing ? 'در حال پیش‌نمایش...' : 'پیش‌نمایش ادغام'}
+        </Button>
+        {previewIsCurrent && preview && preview.conflicts.length === 0 && <Button type="button" disabled={merging} onClick={() => setConfirmOpen(true)}>تأیید و ادغام</Button>}
+      </div>
+      {previewIsCurrent && preview && (
+        <div className="space-y-2 border-2 border-border bg-card p-4 text-sm">
+          {preview.conflicts.length > 0 && <div role="alert" className="border border-red-500/40 bg-red-500/10 p-3 font-bold text-red-300">این ادغام به‌دلیل تداخل هویت قابل انجام نیست:
+            <ul className="mt-2 list-disc pe-5 font-medium">{preview.conflicts.map(conflict => <li key={conflict}>{conflict}</li>)}</ul>
+          </div>}
+          <p className="font-black">برند اصلی: {preview.canonical.name} ({preview.canonical.domain})</p>
+          <p>برندهای ادغام‌شونده: {preview.sources.map(brand => `${brand.name} (${brand.domain})`).join('، ')}</p>
+          <p className="text-muted-text">پیوندهای رتبه: {preview.run_links_to_move.toLocaleString('fa-IR')}؛ پیوندهای پروژه: {preview.project_links_to_repoint.toLocaleString('fa-IR')}؛ نام/دامنه‌های حفظ‌شونده: {preview.aliases_to_preserve.toLocaleString('fa-IR')}؛ رکوردهای تکراری همان اجرا که حذف می‌شوند: {preview.duplicate_run_links_to_remove.toLocaleString('fa-IR')} (رتبه بهتر حفظ می‌شود).</p>
+        </div>
+      )}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>ادغام برندها تأیید شود؟</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedCanonical ? `همه نام‌ها و رکوردهای انتخاب‌شده به «${selectedCanonical.name}» منتقل می‌شوند. این عملیات پس از تأیید قابل بازگشت نیست.` : 'این عملیات پس از تأیید قابل بازگشت نیست.'}
+              {preview && ` ${preview.duplicate_run_links_to_remove.toLocaleString('fa-IR')} رکورد تکراری رتبه حذف خواهد شد.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={merging}>انصراف</AlertDialogCancel>
+            <Button type="button" variant="destructive" disabled={merging} onClick={() => void merge()}>{merging ? 'در حال ادغام...' : 'ادغام قطعی'}</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   )
 }

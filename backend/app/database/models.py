@@ -1,6 +1,6 @@
 from typing import AsyncGenerator
 from datetime import date, datetime
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Date, UniqueConstraint, func, Text, Float, Index
+from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Date, UniqueConstraint, CheckConstraint, func, Text, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from fastapi_users.db import SQLAlchemyBaseUserTable, SQLAlchemyUserDatabase
 from app.database.connection import Base, async_session_maker
@@ -199,6 +199,21 @@ class Brand(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     run_brands: Mapped[list["RunBrand"]] = relationship("RunBrand", back_populates="brand")
+    aliases: Mapped[list["BrandAlias"]] = relationship("BrandAlias", back_populates="brand", cascade="all, delete-orphan")
+
+class BrandAlias(Base):
+    __tablename__ = "brand_aliases"
+    __table_args__ = (CheckConstraint("normalized_name IS NOT NULL OR normalized_domain IS NOT NULL", name="ck_brand_alias_identity"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    brand_id: Mapped[int] = mapped_column(Integer, ForeignKey("brands.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    normalized_name: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
+    domain: Mapped[str | None] = mapped_column(String(500), unique=True, nullable=True)
+    normalized_domain: Mapped[str | None] = mapped_column(String(500), unique=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    brand: Mapped["Brand"] = relationship("Brand", back_populates="aliases")
 
 class RunBrand(Base):
     __tablename__ = "run_brands"

@@ -6,13 +6,13 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.fastapi_users import fastapi_users
 from app.core.config import settings
-from app.database.models import AIModel, AIRun, Project, Prompt, PromptModel, UserTable
+from app.database.models import AIModel, AIRun, Brand, BrandAlias, Project, ProjectBrand, Prompt, PromptModel, RunBrand, UserTable
 from app.dependencies import get_session
 from app.projects.ai_models_schema import AIModelRead
 from app.projects.schema import PromptRead
@@ -24,7 +24,8 @@ from app.repositories.system_settings_repository import (
 )
 from app.services.ai_run_service import DOMAIN_FORMAT_INSTRUCTION
 from app.services.brand_extraction_service import EXTRACTION_PROMPT
-from pydantic import BaseModel, ConfigDict
+from app.services.brand_persistence_service import acquire_brand_write_lock, normalize_brand_domain, normalize_brand_name
+from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -59,6 +60,39 @@ class AdminOverview(BaseModel):
     models_inactive: int
     runs_total: int
     runs_failed: int
+
+
+class AdminBrand(BaseModel):
+    id: int
+    name: str
+    domain: str
+    run_links: int
+    project_links: int
+    aliases: int
+
+
+class BrandMergeRequest(BaseModel):
+    canonical_id: int = Field(gt=0)
+    source_ids: list[int] = Field(min_length=1, max_length=50)
+
+
+class BrandMergePreview(BaseModel):
+    canonical: AdminBrand
+    sources: list[AdminBrand]
+    conflicts: list[str]
+    run_links_to_move: int
+    project_links_to_repoint: int
+    aliases_to_preserve: int
+    duplicate_run_links_to_remove: int
+
+
+class BrandMergeResult(BaseModel):
+    canonical: AdminBrand
+    merged_ids: list[int]
+    moved_run_links: int
+    repointed_project_links: int
+    removed_duplicate_run_links: int
+    preserved_aliases: int
 
 
 def _admin_prompt_read(prompt: Prompt) -> AdminPromptRead:
@@ -333,4 +367,217 @@ async def set_prompt_active(
     await session.commit()
     await session.refresh(prompt)
     return _admin_prompt_read(prompt)
+
+
+async def _admin_brand_reads(session: AsyncSession, brand_ids: list[int] | None = None) -> list[AdminBrand]:
+    stmt = select(
+        Brand,
+        select(func.count(RunBrand.id)).where(RunBrand.brand_id == Brand.id).scalar_subquery(),
+        select(func.count(ProjectBrand.id)).where(ProjectBrand.brand_id == Brand.id).scalar_subquery(),
+        select(func.count(BrandAlias.id)).where(BrandAlias.brand_id == Brand.id).scalar_subquery(),
+    ).order_by(Brand.name, Brand.id)
+    if brand_ids is not None:
+        stmt = stmt.where(Brand.id.in_(brand_ids))
+    rows = (await session.execute(stmt)).all()
+    return [AdminBrand(id=brand.id, name=brand.name, domain=brand.domain, run_links=run_links, project_links=project_links, aliases=aliases) for brand, run_links, project_links, aliases in rows]
+
+
+async def _selected_brands(session: AsyncSession, body: BrandMergeRequest, lock: bool = False) -> tuple[Brand, list[Brand]]:
+    if body.canonical_id in body.source_ids or len(set(body.source_ids)) != len(body.source_ids) or any(brand_id <= 0 for brand_id in body.source_ids):
+        raise HTTPException(status_code=422, detail="برند اصلی و برندهای ادغامی باید متفاوت و یکتا باشند")
+    ids = [body.canonical_id, *body.source_ids]
+    stmt = select(Brand).where(Brand.id.in_(ids)).order_by(Brand.id)
+    if lock:
+        stmt = stmt.with_for_update()
+    brands = (await session.execute(stmt)).scalars().all()
+    by_id = {brand.id: brand for brand in brands}
+    if len(by_id) != len(ids):
+        raise HTTPException(status_code=404, detail="یک یا چند برند پیدا نشد")
+    return by_id[body.canonical_id], [by_id[brand_id] for brand_id in body.source_ids]
+
+
+async def _alias_merge_count(session: AsyncSession, canonical: Brand, sources: list[Brand]) -> int:
+    ids = [canonical.id, *(brand.id for brand in sources)]
+    aliases = (await session.execute(select(BrandAlias).where(BrandAlias.brand_id.in_(ids)))).scalars().all()
+    existing_names = {alias.normalized_name for alias in aliases if alias.brand_id == canonical.id and alias.normalized_name}
+    existing_domains = {alias.normalized_domain for alias in aliases if alias.brand_id == canonical.id and alias.normalized_domain}
+    source_ids = {brand.id for brand in sources}
+    source_names = {normalize_brand_name(brand.name) for brand in sources}
+    source_names.update(alias.normalized_name for alias in aliases if alias.brand_id in source_ids and alias.normalized_name)
+    source_domains = {normalize_brand_domain(brand.domain) for brand in sources}
+    source_domains.update(alias.normalized_domain for alias in aliases if alias.brand_id in source_ids and alias.normalized_domain)
+    names_to_add = {name for name in source_names if name != normalize_brand_name(canonical.name) and name not in existing_names}
+    domains_to_add = {domain for domain in source_domains if domain != normalize_brand_domain(canonical.domain) and domain not in existing_domains}
+    return len(names_to_add) + len(domains_to_add)
+
+
+def _ranked_run_brand_links(canonical_id: int, brand_ids: list[int]):
+    return select(
+        RunBrand.id.label("id"),
+        func.row_number().over(
+            partition_by=RunBrand.ai_run_id,
+            order_by=(RunBrand.rank, case((RunBrand.brand_id == canonical_id, 0), else_=1), RunBrand.id),
+        ).label("position"),
+    ).where(RunBrand.brand_id.in_(brand_ids)).subquery()
+
+
+def _brand_alias_conflicts(canonical: Brand, sources: list[Brand], outsider_brands: list[Brand], aliases: list[BrandAlias]) -> list[str]:
+    involved_ids = {canonical.id, *(brand.id for brand in sources)}
+    aliases_by_name = {alias.normalized_name: alias for alias in aliases if alias.normalized_name}
+    aliases_by_domain = {alias.normalized_domain: alias for alias in aliases if alias.normalized_domain}
+    conflicts = set()
+
+    names = {brand.name for brand in sources}
+    names.update(alias.name for alias in aliases if alias.brand_id in involved_ids and alias.name)
+    canonical_name = normalize_brand_name(canonical.name)
+    for name in names:
+        normalized = normalize_brand_name(name)
+        if not normalized or normalized == canonical_name:
+            continue
+        brand_conflict = any(normalize_brand_name(brand.name) == normalized for brand in outsider_brands)
+        alias = aliases_by_name.get(normalized)
+        if brand_conflict or (alias and alias.brand_id not in involved_ids):
+            conflicts.add(f"نام «{name}» از قبل به برند دیگری متصل است")
+
+    domains = {brand.domain for brand in sources}
+    domains.update(alias.domain for alias in aliases if alias.brand_id in involved_ids and alias.domain)
+    canonical_domain = normalize_brand_domain(canonical.domain)
+    for domain in domains:
+        normalized = normalize_brand_domain(domain)
+        if not normalized or normalized == canonical_domain:
+            continue
+        brand_conflict = any(normalize_brand_domain(brand.domain) == normalized for brand in outsider_brands)
+        alias = aliases_by_domain.get(normalized)
+        if brand_conflict or (alias and alias.brand_id not in involved_ids):
+            conflicts.add(f"دامنه «{domain}» از قبل به برند دیگری متصل است")
+    return sorted(conflicts)
+
+
+async def _brand_merge_counts(session: AsyncSession, canonical_id: int, source_ids: list[int]) -> tuple[int, int, int, int]:
+    all_ids = [canonical_id, *source_ids]
+    run_links = await session.scalar(select(func.count(RunBrand.id)).where(RunBrand.brand_id.in_(source_ids))) or 0
+    project_links = await session.scalar(select(func.count(ProjectBrand.id)).where(ProjectBrand.brand_id.in_(source_ids))) or 0
+    aliases = await session.scalar(select(func.count(BrandAlias.id)).where(BrandAlias.brand_id.in_(source_ids))) or 0
+    per_run = (
+        select(func.count(RunBrand.id).label("link_count"))
+        .where(RunBrand.brand_id.in_(all_ids))
+        .group_by(RunBrand.ai_run_id)
+        .having(func.count(RunBrand.id) > 1)
+    ).subquery()
+    duplicates = await session.scalar(select(func.coalesce(func.sum(per_run.c.link_count - 1), 0))) or 0
+    return int(run_links), int(project_links), int(aliases), int(duplicates)
+
+
+@router.get("/brands", response_model=list[AdminBrand])
+async def list_brands(
+    session: AsyncSession = Depends(get_session),
+    _: UserTable = Depends(require_superuser),
+) -> list[AdminBrand]:
+    return await _admin_brand_reads(session)
+
+
+@router.post("/brands/merge-preview", response_model=BrandMergePreview)
+async def preview_brand_merge(
+    body: BrandMergeRequest,
+    session: AsyncSession = Depends(get_session),
+    _: UserTable = Depends(require_superuser),
+) -> BrandMergePreview:
+    canonical, sources = await _selected_brands(session, body)
+    run_links, project_links, _, duplicates = await _brand_merge_counts(session, canonical.id, [brand.id for brand in sources])
+    aliases = await _alias_merge_count(session, canonical, sources)
+    brand_ids = [canonical.id, *(brand.id for brand in sources)]
+    outsider_brands = (await session.execute(select(Brand).where(Brand.id.not_in(brand_ids)))).scalars().all()
+    all_aliases = (await session.execute(select(BrandAlias))).scalars().all()
+    conflicts = _brand_alias_conflicts(canonical, sources, outsider_brands, all_aliases)
+    reads = {item.id: item for item in await _admin_brand_reads(session, brand_ids)}
+    return BrandMergePreview(
+        canonical=reads[canonical.id],
+        sources=[reads[brand.id] for brand in sources],
+        conflicts=conflicts,
+        run_links_to_move=run_links,
+        project_links_to_repoint=project_links,
+        aliases_to_preserve=aliases,
+        duplicate_run_links_to_remove=duplicates,
+    )
+
+
+@router.post("/brands/merge", response_model=BrandMergeResult)
+async def merge_brands(
+    body: BrandMergeRequest,
+    session: AsyncSession = Depends(get_session),
+    _: UserTable = Depends(require_superuser),
+) -> BrandMergeResult:
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        await acquire_brand_write_lock(session)
+        canonical, sources = await _selected_brands(session, body, lock=True)
+        source_ids = [brand.id for brand in sources]
+        all_ids = [canonical.id, *source_ids]
+        run_links, project_links, _, duplicates = await _brand_merge_counts(session, canonical.id, source_ids)
+
+        outsider_brands = (await session.execute(select(Brand).where(Brand.id.not_in(all_ids)))).scalars().all()
+        all_aliases = (await session.execute(select(BrandAlias))).scalars().all()
+        alias_by_name = {alias.normalized_name: alias for alias in all_aliases if alias.normalized_name}
+        alias_by_domain = {alias.normalized_domain: alias for alias in all_aliases if alias.normalized_domain}
+        conflicts = _brand_alias_conflicts(canonical, sources, outsider_brands, all_aliases)
+        if conflicts:
+            raise HTTPException(status_code=409, detail="؛ ".join(conflicts))
+        involved_aliases = [alias for alias in all_aliases if alias.brand_id in all_ids]
+        source_candidates: list[tuple[str, str | None]] = [(brand.name, brand.domain) for brand in sources]
+        source_candidates.extend((alias.name or "", alias.domain) for alias in involved_aliases if alias.brand_id in source_ids)
+
+        for name, domain in source_candidates:
+            normalized = normalize_brand_name(name) if name else ""
+            if normalized and normalized != normalize_brand_name(canonical.name):
+                conflicting_brand = next((brand for brand in outsider_brands if normalize_brand_name(brand.name) == normalized), None)
+                alias = alias_by_name.get(normalized)
+                if conflicting_brand or (alias and alias.brand_id not in all_ids):
+                    raise HTTPException(status_code=409, detail=f"نام «{name}» به برند دیگری متصل است")
+                if alias and alias.brand_id in source_ids:
+                    alias.brand_id = canonical.id
+                elif not alias:
+                    created_alias = BrandAlias(brand_id=canonical.id, name=name, normalized_name=normalized)
+                    session.add(created_alias)
+                    alias_by_name[normalized] = created_alias
+            normalized_domain = normalize_brand_domain(domain) if domain else ""
+            if normalized_domain and normalized_domain != normalize_brand_domain(canonical.domain):
+                conflicting_brand = next((brand for brand in outsider_brands if normalize_brand_domain(brand.domain) == normalized_domain), None)
+                alias = alias_by_domain.get(normalized_domain)
+                if conflicting_brand or (alias and alias.brand_id not in all_ids):
+                    raise HTTPException(status_code=409, detail=f"دامنه «{domain}» به برند دیگری متصل است")
+                if alias and alias.brand_id in source_ids:
+                    alias.brand_id = canonical.id
+                elif not alias:
+                    created_alias = BrandAlias(brand_id=canonical.id, domain=domain, normalized_domain=normalized_domain)
+                    session.add(created_alias)
+                    alias_by_domain[normalized_domain] = created_alias
+
+        ranked = _ranked_run_brand_links(canonical.id, all_ids)
+        await session.execute(delete(RunBrand).where(RunBrand.id.in_(select(ranked.c.id).where(ranked.c.position > 1))))
+        await session.execute(update(RunBrand).where(RunBrand.brand_id.in_(source_ids)).values(brand_id=canonical.id))
+        await session.execute(update(ProjectBrand).where(ProjectBrand.brand_id.in_(source_ids)).values(brand_id=canonical.id))
+        await session.execute(delete(Brand).where(Brand.id.in_(source_ids)))
+        canonical_read = (await _admin_brand_reads(session, [canonical.id]))[0]
+        preserved = await session.scalar(select(func.count(BrandAlias.id)).where(BrandAlias.brand_id == canonical.id)) or 0
+        result = BrandMergeResult(
+            canonical=canonical_read,
+            merged_ids=source_ids,
+            moved_run_links=run_links,
+            repointed_project_links=project_links,
+            removed_duplicate_run_links=duplicates,
+            preserved_aliases=int(preserved),
+        )
+        await session.commit()
+    except HTTPException:
+        await session.rollback()
+        raise
+    except IntegrityError as error:
+        await session.rollback()
+        raise HTTPException(status_code=409, detail="ادغام به‌دلیل تداخل داده انجام نشد؛ فهرست برندها را تازه کنید") from error
+    except Exception:
+        await session.rollback()
+        raise
+
+    return result
 

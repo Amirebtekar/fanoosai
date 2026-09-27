@@ -1,7 +1,7 @@
 import pytest
 
 from app.services.brand_extraction_service import ExtractedBrand, ExtractionResult
-from app.services.brand_persistence_service import BrandPersistenceService, normalize_brand_name
+from app.services.brand_persistence_service import BrandPersistenceService, normalize_brand_name, resolve_brand_matches
 
 
 class FakeResult:
@@ -22,7 +22,7 @@ class FakeSession:
 
     async def execute(self, statement):
         values = set(statement.compile().params.values())
-        return FakeResult(next((b for b in self.brands if b.domain in values or normalize_brand_name(b.name) in values), None))
+        return FakeResult(next((b for b in self.brands if b.id in values or b.domain in values or normalize_brand_name(b.name) in values), None))
 
     def add(self, entity):
         self.added.append(entity)
@@ -40,6 +40,20 @@ class FakeSession:
 
     async def rollback(self):
         self.rolled_back = True
+
+
+def test_brand_identity_resolution_rejects_conflicting_name_and_domain_matches():
+    named = type("BrandRecord", (), {"id": 1})()
+    domain = type("BrandRecord", (), {"id": 2})()
+
+    with pytest.raises(ValueError, match="different identities"):
+        resolve_brand_matches(named, domain)
+
+
+def test_brand_identity_resolution_uses_the_domain_when_name_is_unmatched():
+    domain = type("BrandRecord", (), {"id": 2})()
+
+    assert resolve_brand_matches(None, domain) is domain
 
 
 @pytest.mark.asyncio
@@ -85,6 +99,21 @@ async def test_reuses_a_brand_when_the_extracted_domain_is_misspelled():
 
     assert second.new_brands == 0
     assert second.brands[0].id == first.brands[0].id
+
+
+@pytest.mark.asyncio
+async def test_collapses_duplicate_aliases_in_a_single_run_to_one_best_rank_link():
+    session = FakeSession()
+    result = await BrandPersistenceService(session).persist(7, ExtractionResult([
+        ExtractedBrand(1, "پارس‌پک", "parspack.com", 0.99),
+        ExtractedBrand(2, "پارس پک", "parspak.com", 0.95),
+    ]))
+
+    assert result.new_brands == 1
+    assert result.run_brands == 1
+    assert len(session.links) == 1
+    assert session.links[0].rank == 1
+    assert session.links[0].raw_name == "پارس‌پک"
 
 
 @pytest.mark.asyncio

@@ -205,6 +205,13 @@ export interface ModelHealthStats { total_runs: number; failed_runs: number; las
 
 export function getAdminOverview(): Promise<AdminOverview> { return authRequest('GET', '/admin/overview') }
 export function getAdminCosts(): Promise<AdminCostItem[]> { return authRequest('GET', '/admin/costs') }
+export interface AdminBrand { id: number; name: string; domain: string; run_links: number; project_links: number; aliases: number }
+export interface BrandMergeRequest { canonical_id: number; source_ids: number[] }
+export interface BrandMergePreview { canonical: AdminBrand; sources: AdminBrand[]; conflicts: string[]; run_links_to_move: number; project_links_to_repoint: number; aliases_to_preserve: number; duplicate_run_links_to_remove: number }
+export interface BrandMergeResult { canonical: AdminBrand; merged_ids: number[]; moved_run_links: number; repointed_project_links: number; removed_duplicate_run_links: number; preserved_aliases: number }
+export function listAdminBrands(): Promise<AdminBrand[]> { return authRequest('GET', '/admin/brands') }
+export function previewAdminBrandMerge(body: BrandMergeRequest): Promise<BrandMergePreview> { return authRequest('POST', '/admin/brands/merge-preview', body) }
+export function mergeAdminBrands(body: BrandMergeRequest): Promise<BrandMergeResult> { return authRequest('POST', '/admin/brands/merge', body) }
 export function listAdminPrompts(params: { include_archived?: boolean; search?: string } = {}): Promise<AdminPromptRead[]> {
   const query = new URLSearchParams()
   if (params.include_archived) query.set('include_archived', 'true')
