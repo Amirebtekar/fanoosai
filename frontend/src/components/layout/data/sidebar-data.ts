@@ -5,10 +5,7 @@ import {
   Settings,
   ShieldCheck,
 } from 'lucide-react'
-import {
-  IconFolder,
-  IconChartBar,
-} from '@tabler/icons-react'
+import { IconFolder } from '@tabler/icons-react'
 import { type SidebarData } from '../types'
 
 export const sidebarData: SidebarData = {
@@ -47,11 +44,6 @@ export const sidebarData: SidebarData = {
           title: 'مدیریت پروژه‌ها',
           url: '/project-management',
           icon: Settings,
-        },
-        {
-          title: 'آنالیتیکس',
-          url: '/analytics',
-          icon: IconChartBar,
         },
       ],
     },
