@@ -83,10 +83,10 @@ class FakeRetryQueue:
         self.jobs = []
 
     async def enqueue_retry_in_one_hour(self, job):
-        self.jobs.append(job)
+        self.jobs.append((job, 3600))
 
-    async def enqueue_extraction_retry_in_five_minutes(self, job):
-        self.jobs.append(job)
+    async def enqueue_extraction_retry(self, job, delay_seconds):
+        self.jobs.append((job, delay_seconds))
 
 
 class FakeExtractionService:
@@ -339,7 +339,7 @@ async def test_failed_manual_run_releases_claim_so_user_can_retry_same_day():
 
 
 @pytest.mark.asyncio
-async def test_failed_brand_extraction_does_not_auto_retry():
+async def test_failed_brand_extraction_schedules_first_extraction_retry():
     queue = FakeRetryQueue()
     service = AIRunService(
         FakeRunRepository(), FakeAIService(), FailingExtractionService(), FakePersistenceService(), queue,
@@ -354,15 +354,21 @@ async def test_failed_brand_extraction_does_not_auto_retry():
 
     assert result[0]["ai_run_status"] == "success"
     assert result[0]["extraction_status"] == "failed"
-    assert queue.jobs == []
+    assert len(queue.jobs) == 1
+    job, delay = queue.jobs[0]
+    assert job.source == "extraction_retry"
+    assert job.ai_run_id == 1
+    assert job.run_attempt == 2
+    assert delay == 300
 
 
 @pytest.mark.asyncio
-async def test_extraction_retry_failure_does_not_enqueue_more():
+async def test_extraction_retry_failure_schedules_next_attempt():
     run = SimpleNamespace(
         id=4,
         prompt_id=7,
         ai_model_id=1,
+        created_at=datetime(2026, 7, 17, tzinfo=timezone.utc),
         status="success",
         extraction_status="failed",
         response_text="bad response",
@@ -377,7 +383,37 @@ async def test_extraction_retry_failure_does_not_enqueue_more():
         Repository(), FakeAIService(), FailingExtractionService(), FakePersistenceService(), queue,
     )
 
-    await service.retry_extraction(4, run_attempt=3)
+    await service.retry_extraction(4, run_attempt=2)
+
+    assert run.extraction_status == "failed"
+    assert len(queue.jobs) == 1
+    job, delay = queue.jobs[0]
+    assert job.ai_run_id == 4
+    assert job.run_attempt == 3
+    assert job.run_date == "2026-07-17"
+    assert delay == 900
+
+
+@pytest.mark.asyncio
+async def test_extraction_retry_stops_after_three_retries():
+    run = SimpleNamespace(
+        id=4,
+        prompt_id=7,
+        ai_model_id=1,
+        created_at=datetime(2026, 7, 17, tzinfo=timezone.utc),
+        status="success",
+        extraction_status="failed",
+        response_text="bad response",
+    )
+
+    class Repository(FakeRunRepository):
+        async def get(self, run_id):
+            return run
+
+    queue = FakeRetryQueue()
+    service = AIRunService(Repository(), FakeAIService(), FailingExtractionService(), FakePersistenceService(), queue)
+
+    await service.retry_extraction(4, run_attempt=4)
 
     assert run.extraction_status == "failed"
     assert queue.jobs == []

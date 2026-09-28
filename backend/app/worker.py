@@ -25,6 +25,7 @@ _last_request_at = 0.0
 
 
 async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
+    global _last_request_at
     async with async_session_maker() as session:
         ai_service = AIService()
         service = AIRunService(
@@ -33,7 +34,12 @@ async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
         )
         if job.source == "extraction_retry":
             if job.ai_run_id is not None:
-                await service.retry_extraction(job.ai_run_id, job.run_attempt)
+                async with _request_lock:
+                    wait = settings.WORKER_REQUEST_DELAY_SECONDS - (asyncio.get_running_loop().time() - _last_request_at)
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                    _last_request_at = asyncio.get_running_loop().time()
+                    await service.retry_extraction(job.ai_run_id, job.run_attempt)
             await queue.ack(entry_id)
             return
         prompt = (await session.execute(
@@ -47,7 +53,6 @@ async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
         run_at = datetime.combine(
             date.fromisoformat(job.run_date), time(hour=9), tzinfo=ZoneInfo(settings.RUN_TIMEZONE)
         )
-        global _last_request_at
         async with _request_lock:
             wait = settings.WORKER_REQUEST_DELAY_SECONDS - (asyncio.get_running_loop().time() - _last_request_at)
             if wait > 0:

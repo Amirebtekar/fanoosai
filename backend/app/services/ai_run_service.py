@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.database.models import Prompt
-from app.infrastructure.run_queue import PromptRunQueue
+from app.infrastructure.run_queue import PromptRunJob, PromptRunQueue
 from app.repositories.ai_run_repository import AIRunRepository
 from app.repositories.system_settings_repository import (
     DOMAIN_INSTRUCTION_KEY,
@@ -20,6 +20,7 @@ DOMAIN_FORMAT_INSTRUCTION = (
     "دامنه را حدس نزن؛ اگر مطمئن نیستی، آن را نیاور. به این دستور در پاسخ اشاره نکن."
 )
 logger = logging.getLogger(__name__)
+EXTRACTION_RETRY_DELAYS = (300, 900, 1800)
 
 class AIRunService:
     def __init__(
@@ -124,7 +125,25 @@ class AIRunService:
             )]
         except Exception as exc:
             await self.run_repo.update_extraction(run, "failed", str(exc))
+            await self._schedule_extraction_retry(run, run_attempt)
             return [self._result(run, model, error=str(exc))]
+
+    async def _schedule_extraction_retry(self, run, run_attempt: int) -> None:
+        if self.retry_queue is None or run_attempt > len(EXTRACTION_RETRY_DELAYS):
+            return
+        delay_seconds = EXTRACTION_RETRY_DELAYS[run_attempt - 1]
+        job = PromptRunJob(
+            prompt_id=run.prompt_id,
+            ai_model_id=run.ai_model_id,
+            run_date=self._run_date(getattr(run, "created_at", None)).isoformat(),
+            source="extraction_retry",
+            run_attempt=run_attempt + 1,
+            ai_run_id=run.id,
+        )
+        try:
+            await self.retry_queue.enqueue_extraction_retry(job, delay_seconds)
+        except Exception:
+            logger.exception("extraction_retry_enqueue_failed", extra={"event_data": {"ai_run_id": run.id, "run_attempt": run_attempt + 1}})
 
     async def retry_extraction(self, run_id: int, run_attempt: int = 1) -> None:
         run = await self.run_repo.get(run_id)
@@ -138,6 +157,7 @@ class AIRunService:
             await self.run_repo.update_extraction(run, "completed")
         except Exception as exc:
             await self.run_repo.update_extraction(run, "failed", str(exc))
+            await self._schedule_extraction_retry(run, run_attempt)
 
     @staticmethod
     def _result(run, model, *, brands_found=0, new_brands=0, existing_brands=0, error=None):

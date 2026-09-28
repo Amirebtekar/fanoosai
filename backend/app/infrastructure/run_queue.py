@@ -54,10 +54,10 @@ class PromptRunQueue:
             {json.dumps(asdict(job), separators=(",", ":")): __import__("time").time() + 3600},
         )
 
-    async def enqueue_extraction_retry_in_five_minutes(self, job: PromptRunJob) -> None:
+    async def enqueue_extraction_retry(self, job: PromptRunJob, delay_seconds: int) -> None:
         await self.redis.zadd(
             f"{self.stream}:delayed",
-            {json.dumps(asdict(job), separators=(",", ":")): __import__("time").time() + 300},
+            {json.dumps(asdict(job), separators=(",", ":")): __import__("time").time() + delay_seconds},
             nx=True,
         )
 
