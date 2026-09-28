@@ -102,6 +102,12 @@ export function addProjectBrand(projectId: number, body: Omit<ProjectBrand, 'id'
 export function deleteProjectBrand(projectId: number, brandId: number): Promise<void> { return authRequest('DELETE', '/projects/' + projectId + '/brands/' + brandId) }
 export function getProjectDashboard(projectId: number): Promise<ProjectDashboard> { return authRequest('GET', '/projects/' + projectId + '/dashboard') }
 export function getModelPerformance(projectId: number, days: 7 | 30 = 7): Promise<ModelPerformance[]> { return authRequest('GET', `/projects/${projectId}/model-performance?days=${days}`) }
+export interface BrandRankSummaryItem { prompt_id: number; prompt: string; brand: string; domain?: string | null; average_rank: number; observations: number }
+export function getBrandRankSummary(projectId: number, params: { days?: 7 | 30; prompt_id?: number; page?: number; page_size?: number } = {}): Promise<Page<BrandRankSummaryItem>> {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) })
+  return authRequest('GET', `/projects/${projectId}/brand-rank-summary?${query}`)
+}
 export function listAlerts(projectId: number): Promise<AlertItem[]> { return authRequest('GET', '/projects/' + projectId + '/alerts') }
 export function addAlertRule(projectId: number, kind: string, cooldown_hours = 24): Promise<unknown> { return authRequest('POST', `/projects/${projectId}/alert-rules?kind=${kind}&cooldown_hours=${cooldown_hours}`) }
 export function readAlert(projectId: number, alertId: number): Promise<void> { return authRequest('POST', `/projects/${projectId}/alerts/${alertId}/read`) }

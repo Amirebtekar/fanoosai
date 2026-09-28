@@ -123,6 +123,14 @@ class BrandDetails(BaseModel):
     first_seen: datetime | None
     last_seen: datetime | None
 
+class BrandRankSummaryItem(BaseModel):
+    prompt_id: int
+    prompt: str
+    brand: str
+    domain: str | None
+    average_rank: float
+    observations: int
+
 class RankReportRow(BaseModel):
     prompt_id: int
     prompt: str

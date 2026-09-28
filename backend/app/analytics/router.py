@@ -180,6 +180,62 @@ async def model_performance(
         for name, total_runs, successful_runs, direct_successful_runs, failed_runs in rows.all()
     ]
 
+@router.get("/projects/{project_id}/brand-rank-summary", response_model=Page)
+async def brand_rank_summary(
+    project_id: int,
+    days: int = Query(7),
+    prompt_id: int | None = Query(None, gt=0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    await owned_project(project_id, session, user)
+    try:
+        start, end = model_performance_window(days)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    stmt = (
+        select(
+            Prompt.id.label("prompt_id"),
+            Prompt.text.label("prompt"),
+            Brand.name.label("brand"),
+            Brand.domain.label("domain"),
+            func.avg(RunBrand.rank).label("average_rank"),
+            func.count(RunBrand.id).label("observations"),
+        )
+        .select_from(RunBrand)
+        .join(AIRun, AIRun.id == RunBrand.ai_run_id)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(Brand, Brand.id == RunBrand.brand_id)
+        .where(
+            Prompt.project_id == project_id,
+            AIRun.status == "success",
+            AIRun.created_at >= start,
+            AIRun.created_at < end,
+        )
+        .group_by(Prompt.id, Prompt.text, Brand.id, Brand.name, Brand.domain)
+    )
+    if prompt_id is not None:
+        stmt = stmt.where(Prompt.id == prompt_id)
+    total = await session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    rows = (await session.execute(
+        stmt.order_by(func.avg(RunBrand.rank), Brand.name)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )).all()
+    items = [BrandRankSummaryItem(
+        prompt_id=prompt_value,
+        prompt=prompt_text,
+        brand=brand,
+        domain=domain,
+        average_rank=float(average_rank),
+        observations=observations,
+    ) for prompt_value, prompt_text, brand, domain, average_rank, observations in rows]
+    return Page(items=items, page=page, page_size=page_size, total=total)
+
+
 @router.get("/projects/{project_id}/prompts", response_model=list[PromptAnalytics])
 async def prompt_analytics(project_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     await owned_project(project_id, session, user)
