@@ -3,6 +3,7 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { addAlertRule, addProjectBrand, createReportShare, deleteProjectBrand, exportRunsCsv, getModelPerformance, getProjectDashboard, getReportShareUrl, listAlerts, listObservedBrands, listProjectBrands, readAlert, revokeReportShare, type AlertItem, type ModelPerformance, type ObservedBrand, type ProjectBrand, type ProjectDashboard } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -68,22 +69,43 @@ function ProjectKpis({ projectId }: { projectId: number }) {
 }
 
 function ModelPerformanceTable({ projectId }: { projectId: number }) {
-  const [models, setModels] = useState<ModelPerformance[] | null>(null)
-  const [error, setError] = useState(false)
-  useEffect(() => { getModelPerformance(projectId).then(setModels).catch(() => setError(true)) }, [projectId])
-  if (error) return <p className="mb-6 text-sm text-red-600">دریافت عملکرد مدل‌ها ممکن نشد.</p>
+  const [result, setResult] = useState<{ key: string; models?: ModelPerformance[]; error?: boolean } | null>(null)
+  const [days, setDays] = useState<7 | 30>(7)
+  const requestKey = `${projectId}:${days}`
+  useEffect(() => {
+    getModelPerformance(projectId, days)
+      .then(models => setResult({ key: requestKey, models }))
+      .catch(() => setResult({ key: requestKey, error: true }))
+  }, [projectId, days, requestKey])
+  const currentResult = result?.key === requestKey ? result : null
+  const models = currentResult?.models ?? null
+  if (currentResult?.error) return <p className="mb-6 text-sm text-red-600">دریافت عملکرد مدل‌ها ممکن نشد.</p>
   if (!models) return <Skeleton className="mb-6 h-48 w-full bg-accent" />
-  return <Card className="mb-8 border-border shadow-[6px_6px_0_var(--color-shadow)]"><CardHeader><h2 className="text-lg font-black">عملکرد مدل‌ها</h2></CardHeader><CardContent><ModelPerformanceTableContent models={models} /></CardContent></Card>
+  return <Card className="mb-8 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+    <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+      <h2 className="text-lg font-black">عملکرد مدل‌ها</h2>
+      <label className="flex items-center gap-2 text-sm font-bold">
+        بازه
+        <Select value={String(days)} onValueChange={value => setDays(Number(value) as 7 | 30)}>
+          <SelectTrigger aria-label="بازهٔ گزارش عملکرد مدل‌ها" className="h-9 w-36 border-border bg-background"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="7">۷ روز گذشته</SelectItem>
+            <SelectItem value="30">۳۰ روز گذشته</SelectItem>
+          </SelectContent>
+        </Select>
+      </label>
+    </CardHeader>
+    <CardContent><ModelPerformanceTableContent models={models} /></CardContent>
+  </Card>
 }
 
 export function ModelPerformanceTableContent({ models }: { models: ModelPerformance[] }) {
-  if (!models.length) return <p className="text-sm text-muted-text">هنوز اجرایی برای مدل‌ها ثبت نشده است.</p>
-  return <div className="overflow-x-auto"><table className="w-full min-w-[720px] text-right text-sm">
+  if (!models.length) return <p className="text-sm text-muted-text">در این بازه اجرایی ثبت نشده است.</p>
+  return <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-right text-sm">
     <thead className="border-b-2 border-border text-muted-text"><tr>
       <th className="p-2" scope="col">مدل</th>
       <th className="p-2" scope="col">کل درخواست‌ها</th>
       <th className="p-2 text-emerald-700" scope="col">موفق مستقیم</th>
-      <th className="p-2 text-amber-700" scope="col">موفق با AvalAI</th>
       <th className="p-2 text-red-600" scope="col">ناموفق نهایی</th>
       <th className="p-2" scope="col">نرخ موفقیت</th>
     </tr></thead>
@@ -91,7 +113,6 @@ export function ModelPerformanceTableContent({ models }: { models: ModelPerforma
       <td className="p-2 font-bold">{model.ai_model}</td>
       <td className="p-2">{model.total_runs.toLocaleString('fa-IR')}</td>
       <td className="p-2 font-bold text-emerald-700">{model.direct_successful_runs.toLocaleString('fa-IR')}</td>
-      <td className="p-2 font-bold text-amber-700">{model.fallback_successful_runs.toLocaleString('fa-IR')}</td>
       <td className="p-2 font-bold text-red-600">{model.failed_runs.toLocaleString('fa-IR')}</td>
       <td className="p-2">{model.success_rate.toLocaleString('fa-IR')}٪</td>
     </tr>)}</tbody>

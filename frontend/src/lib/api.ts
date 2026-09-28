@@ -84,7 +84,7 @@ export interface Page<T> { items: T[]; page: number; page_size: number; total: n
 export interface ProjectBrand { id: number; name: string; domain?: string | null; kind: 'owned' | 'competitor'; brand_id?: number | null }
 export interface ObservedBrand { brand_id: number; name: string; domain: string }
 export interface ProjectDashboard { visibility: number; average_rank?: number | null; appearances: number; last_successful_run?: string | null; competitors: { name: string; appearances: number; average_rank?: number | null }[] }
-export interface ModelPerformance { ai_model: string; total_runs: number; successful_runs: number; direct_successful_runs: number; fallback_successful_runs: number; failed_runs: number; success_rate: number }
+export interface ModelPerformance { ai_model: string; total_runs: number; successful_runs: number; direct_successful_runs: number; failed_runs: number; success_rate: number }
 export interface AlertItem { id: number; kind: string; message: string; read_at?: string | null; created_at: string }
 
 export function listPrompts(projectId: number, includeArchived?: boolean): Promise<PromptRead[]> { const qs = includeArchived ? '?include_archived=true' : ''; return authRequest('GET', '/projects/' + projectId + '/prompts' + qs) }
@@ -101,7 +101,7 @@ export function listObservedBrands(projectId: number): Promise<ObservedBrand[]> 
 export function addProjectBrand(projectId: number, body: Omit<ProjectBrand, 'id' | 'brand_id'>): Promise<ProjectBrand> { return authRequest('POST', '/projects/' + projectId + '/brands', body) }
 export function deleteProjectBrand(projectId: number, brandId: number): Promise<void> { return authRequest('DELETE', '/projects/' + projectId + '/brands/' + brandId) }
 export function getProjectDashboard(projectId: number): Promise<ProjectDashboard> { return authRequest('GET', '/projects/' + projectId + '/dashboard') }
-export function getModelPerformance(projectId: number): Promise<ModelPerformance[]> { return authRequest('GET', '/projects/' + projectId + '/model-performance') }
+export function getModelPerformance(projectId: number, days: 7 | 30 = 7): Promise<ModelPerformance[]> { return authRequest('GET', `/projects/${projectId}/model-performance?days=${days}`) }
 export function listAlerts(projectId: number): Promise<AlertItem[]> { return authRequest('GET', '/projects/' + projectId + '/alerts') }
 export function addAlertRule(projectId: number, kind: string, cooldown_hours = 24): Promise<unknown> { return authRequest('POST', `/projects/${projectId}/alert-rules?kind=${kind}&cooldown_hours=${cooldown_hours}`) }
 export function readAlert(projectId: number, alertId: number): Promise<void> { return authRequest('POST', `/projects/${projectId}/alerts/${alertId}/read`) }

@@ -32,11 +32,11 @@ def test_history_schemas_expose_dashboard_fields():
     assert set(BrandTrendPoint.model_fields) >= {"date", "rank", "ai_run_id"}
     assert set(BrandTrend.model_fields) >= {"brand_id", "brand", "domain", "ai_model_id", "ai_model", "points", "rank_change", "trend"}
     assert set(PromptBrandTrends.model_fields) >= {"prompt_id", "items"}
-    assert set(ModelPerformance.model_fields) >= {
+    assert set(ModelPerformance.model_fields) == {
         "ai_model",
         "total_runs",
+        "successful_runs",
         "direct_successful_runs",
-        "fallback_successful_runs",
         "failed_runs",
         "success_rate",
     }

@@ -123,21 +123,47 @@ async def dashboard(project_id: int, session: AsyncSession = Depends(get_session
     competitors = [{"name": name, "appearances": count, "average_rank": float(avg) if avg is not None else None} for name, kind, count, avg in configured if kind == "competitor"]
     return DashboardSummary(prompt_count=p, active_model_count=m, run_count=total, brand_count=b, last_successful_run=latest, successful_run_count=success, failed_run_count=failed, visibility=visibility_percent(owned_runs, success), average_rank=average_rank, appearances=appearances, competitors=competitors)
 
+def model_performance_window(days: int, now: datetime | None = None) -> tuple[datetime, datetime]:
+    if days not in {7, 30}:
+        raise ValueError("days must be 7 or 30")
+    timezone = ZoneInfo(settings.RUN_TIMEZONE)
+    current = now or datetime.now(timezone)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone)
+    today = current.astimezone(timezone).date()
+    start = datetime.combine(today - timedelta(days=days - 1), time.min, tzinfo=timezone)
+    end = datetime.combine(today + timedelta(days=1), time.min, tzinfo=timezone)
+    return start.astimezone(dt_timezone.utc), end.astimezone(dt_timezone.utc)
+
+
 @router.get("/projects/{project_id}/model-performance", response_model=list[ModelPerformance])
-async def model_performance(project_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
+async def model_performance(
+    project_id: int,
+    days: int = Query(7),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
     await owned_project(project_id, session, user)
+    try:
+        start, end = model_performance_window(days)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     rows = await session.execute(
         select(
             AIModel.name,
             func.count(AIRun.id),
             func.count(AIRun.id).filter(AIRun.status == "success"),
-            func.count(AIRun.id).filter(AIRun.status == "success", AIRun.provider_used == "primary"),
             func.count(AIRun.id).filter(AIRun.status == "success", AIRun.provider_used.in_(["avalai", "9router"])),
             func.count(AIRun.id).filter(AIRun.status != "success"),
         )
         .join(PromptModel, PromptModel.ai_model_id == AIModel.id)
         .join(Prompt, Prompt.id == PromptModel.prompt_id)
-        .outerjoin(AIRun, and_(AIRun.prompt_id == Prompt.id, AIRun.ai_model_id == AIModel.id))
+        .outerjoin(AIRun, and_(
+            AIRun.prompt_id == Prompt.id,
+            AIRun.ai_model_id == AIModel.id,
+            AIRun.created_at >= start,
+            AIRun.created_at < end,
+        ))
         .where(Prompt.project_id == project_id)
         .group_by(AIModel.id, AIModel.name)
         .order_by(AIModel.name)
@@ -148,18 +174,10 @@ async def model_performance(project_id: int, session: AsyncSession = Depends(get
             total_runs=total_runs,
             successful_runs=successful_runs,
             direct_successful_runs=direct_successful_runs,
-            fallback_successful_runs=fallback_successful_runs,
             failed_runs=failed_runs,
             success_rate=round(successful_runs / total_runs * 100, 1) if total_runs else 0,
         )
-        for (
-            name,
-            total_runs,
-            successful_runs,
-            direct_successful_runs,
-            fallback_successful_runs,
-            failed_runs,
-        ) in rows.all()
+        for name, total_runs, successful_runs, direct_successful_runs, failed_runs in rows.all()
     ]
 
 @router.get("/projects/{project_id}/prompts", response_model=list[PromptAnalytics])

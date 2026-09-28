@@ -19,7 +19,6 @@ class ModelPerformance(BaseModel):
     total_runs: int
     successful_runs: int
     direct_successful_runs: int
-    fallback_successful_runs: int
     failed_runs: int
     success_rate: float
 
