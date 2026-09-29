@@ -51,8 +51,8 @@ async def test_brand_rank_summary_averages_all_models_and_limits_to_tehran_windo
         ),
     )
     session = Session([
-        (33, "هاست ایرانی ارزان از کجا بگیرم؟", "پارس‌پک", "parspack.com", 1.5, 4),
-        (33, "هاست ایرانی ارزان از کجا بگیرم؟", "ایران‌سرور", "iranserver.com", 2.0, 3),
+        (33, "هاست ایرانی ارزان از کجا بگیرم؟", 1, "پارس‌پک", "parspack.com", 1.5, 4),
+        (33, "هاست ایرانی ارزان از کجا بگیرم؟", 6, "ایران‌سرور", "iranserver.com", 2.0, 3),
     ])
 
     result = await analytics_router.brand_rank_summary(
@@ -71,6 +71,7 @@ async def test_brand_rank_summary_averages_all_models_and_limits_to_tehran_windo
     assert result.items[0] == BrandRankSummaryItem(
         prompt_id=33,
         prompt="هاست ایرانی ارزان از کجا بگیرم؟",
+        brand_id=1,
         brand="پارس‌پک",
         domain="parspack.com",
         average_rank=1.5,

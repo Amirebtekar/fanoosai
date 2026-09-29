@@ -201,6 +201,7 @@ async def brand_rank_summary(
         select(
             Prompt.id.label("prompt_id"),
             Prompt.text.label("prompt"),
+            Brand.id.label("brand_id"),
             Brand.name.label("brand"),
             Brand.domain.label("domain"),
             func.avg(RunBrand.rank).label("average_rank"),
@@ -231,11 +232,12 @@ async def brand_rank_summary(
     items = [BrandRankSummaryItem(
         prompt_id=prompt_value,
         prompt=prompt_text,
+        brand_id=brand_value,
         brand=brand,
         domain=domain,
         average_rank=float(average_rank),
         observations=observations,
-    ) for prompt_value, prompt_text, brand, domain, average_rank, observations in rows]
+    ) for prompt_value, prompt_text, brand_value, brand, domain, average_rank, observations in rows]
     return Page(items=items, page=page, page_size=page_size, total=total)
 
 

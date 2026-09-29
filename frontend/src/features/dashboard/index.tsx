@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { FolderKanban, BarChart3, LogOut } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
-import { getBrandRankSummary, getCurrentUser, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
+import { getBrandRankSummary, getCurrentUser, getPromptBrandTrends, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type BrandTrend, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
+import { summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -89,6 +90,8 @@ function BrandRankReport() {
   const [brandId, setBrandId] = useState('all')
   const [days, setDays] = useState<7 | 30>(7)
   const [result, setResult] = useState<{ key: string; items: BrandRankSummaryItem[]; error?: boolean } | null>(null)
+  const [expandedKey, setExpandedKey] = useState('')
+  const [trendResult, setTrendResult] = useState<{ key: string; items: BrandTrend[]; error?: boolean } | null>(null)
   const [projectsLoaded, setProjectsLoaded] = useState(false)
 
   useEffect(() => {
@@ -124,6 +127,24 @@ function BrandRankReport() {
   }, [projectId, promptId, brandId, days, requestKey])
 
   const current = result?.key === requestKey ? result : null
+  const dayKeys = tehranReportDays(days)
+
+  const toggleDetails = (item: BrandRankSummaryItem) => {
+    const key = `${requestKey}:${item.prompt_id}:${item.brand_id}`
+    if (expandedKey === key) {
+      setExpandedKey('')
+      return
+    }
+    setExpandedKey(key)
+    const bounds = tehranBounds(dayKeys)
+    getPromptBrandTrends(item.prompt_id, {
+      brand_ids: [item.brand_id],
+      start_date: bounds.start_date,
+      end_date: bounds.end_date,
+    })
+      .then(trends => setTrendResult({ key, items: trends.items }))
+      .catch(() => setTrendResult({ key, items: [], error: true }))
+  }
 
   return (
     <Card className='mt-6 border-border shadow-[6px_6px_0_var(--color-shadow)]'>
@@ -178,12 +199,45 @@ function BrandRankReport() {
                 <tr><th scope='col' className='p-2'>پرامپت</th><th scope='col' className='p-2'>برند</th><th scope='col' className='p-2'>میانگین رتبه</th><th scope='col' className='p-2'>تعداد مشاهده</th></tr>
               </thead>
               <tbody>
-                {current.items.map((item, index) => <tr key={`${item.prompt_id}-${item.brand}-${index}`} className='border-b border-border/60 last:border-0'>
-                  <td className='max-w-[360px] whitespace-normal p-2'>{item.prompt}</td>
-                  <td className='p-2 font-bold'>{item.brand}{item.domain && <span className='ms-2 text-xs font-normal text-muted-text' dir='ltr'>{item.domain}</span>}</td>
-                  <td className='p-2 font-black tabular-nums'>{item.average_rank.toFixed(2)}</td>
-                  <td className='p-2 tabular-nums'>{item.observations.toLocaleString('fa-IR')}</td>
-                </tr>)}
+                {current.items.map((item, index) => {
+                  const detailKey = `${requestKey}:${item.prompt_id}:${item.brand_id}`
+                  const isExpanded = expandedKey === detailKey
+                  const details = trendResult?.key === detailKey ? summarizeModelRanks(trendResult.items, dayKeys) : []
+                  return <Fragment key={`${item.prompt_id}-${item.brand_id}-${index}`}>
+                    <tr className='border-b border-border/60 last:border-0'>
+                      <td className='max-w-[360px] whitespace-normal p-2'>
+                        <button type='button' aria-expanded={isExpanded} onClick={() => toggleDetails(item)} className='text-right font-medium underline decoration-dotted underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
+                          {item.prompt}
+                        </button>
+                      </td>
+                      <td className='p-2 font-bold'>{item.brand}{item.domain && <span className='ms-2 text-xs font-normal text-muted-text' dir='ltr'>{item.domain}</span>}</td>
+                      <td className='p-2 font-black tabular-nums'>{item.average_rank.toFixed(2)}</td>
+                      <td className='p-2 tabular-nums'>{item.observations.toLocaleString('fa-IR')}</td>
+                    </tr>
+                    {isExpanded && <tr key={`${detailKey}-details`} className='border-b-2 border-border bg-muted/10'>
+                      <td colSpan={4} className='p-3'>
+                        {trendResult?.key !== detailKey ? <Skeleton className='h-20 w-full bg-accent' /> : trendResult.error ? <p role='alert' className='py-3 text-sm font-bold text-red-600'>دریافت جزئیات مدل‌ها ممکن نشد.</p> : details.length === 0 ? <p className='py-3 text-sm text-muted-text'>برای این برند جزئیاتی در این بازه نیست.</p> : (
+                          <div className='overflow-x-auto border border-border/70 bg-card'>
+                            <table className='w-full min-w-[760px] text-right text-xs'>
+                              <thead className='border-b border-border bg-muted/30 text-muted-text'><tr>
+                                <th className='p-2'>مدل</th><th className='p-2'>میانگین رتبه</th><th className='p-2'>آخرین رتبه</th><th className='p-2'>تغییر</th><th className='p-2'>مشاهده روزانه</th>
+                                {dayKeys.map(day => <th key={day} className='p-2'>{day.replace(/-/g, '/')}</th>)}
+                              </tr></thead>
+                              <tbody>{details.map(detail => <tr key={detail.ai_model_id} className='border-b border-border/50 last:border-0'>
+                                <td className='p-2 font-bold' dir='ltr'>{detail.ai_model}</td>
+                                <td className='p-2 font-bold tabular-nums'>{detail.average_rank?.toFixed(2) ?? '—'}</td>
+                                <td className='p-2 tabular-nums'>{detail.latest_rank ?? '—'}</td>
+                                <td className={`p-2 font-bold tabular-nums ${detail.rank_change == null ? 'text-muted-text' : detail.rank_change <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{detail.rank_change == null ? '—' : `${detail.rank_change > 0 ? '+' : ''}${detail.rank_change}`}</td>
+                                <td className='p-2 tabular-nums'>{detail.observations.toLocaleString('fa-IR')}</td>
+                                {dayKeys.map(day => <td key={day} className='p-2 text-center tabular-nums'>{detail.daily[day] ?? '—'}</td>)}
+                              </tr>)}</tbody>
+                            </table>
+                          </div>
+                        )}
+                      </td>
+                    </tr>}
+                  </Fragment>
+                })}
               </tbody>
             </table>
           </div>

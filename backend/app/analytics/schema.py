@@ -126,6 +126,7 @@ class BrandDetails(BaseModel):
 class BrandRankSummaryItem(BaseModel):
     prompt_id: int
     prompt: str
+    brand_id: int
     brand: str
     domain: str | None
     average_rank: float
