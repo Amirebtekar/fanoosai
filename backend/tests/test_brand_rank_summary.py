@@ -28,6 +28,7 @@ class Session:
         self.statement = None
 
     async def scalar(self, statement):
+        self.count_statement = statement
         return len(self.rows)
 
     async def execute(self, statement):
@@ -58,6 +59,7 @@ async def test_brand_rank_summary_averages_all_models_and_limits_to_tehran_windo
         10,
         days=7,
         prompt_id=33,
+        brand_id=1,
         page=1,
         page_size=20,
         session=session,
@@ -76,6 +78,9 @@ async def test_brand_rank_summary_averages_all_models_and_limits_to_tehran_windo
     )
     assert "prompts.project_id = 10" in sql
     assert "prompts.id = 33" in sql
+    assert "brands.id = 1" in sql
+    count_sql = str(session.count_statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert "brands.id = 1" in count_sql
     assert "ai_runs.status = 'success'" in sql
     assert "ai_runs.created_at >= '2026-09-20 00:00:00+00:00'" in sql
     assert "ai_runs.created_at < '2026-09-27 00:00:00+00:00'" in sql
@@ -105,4 +110,4 @@ async def test_brand_rank_summary_rejects_unsupported_period(monkeypatch):
 def test_brand_rank_summary_route_is_paginated():
     route = next(route for route in router.routes if route.path == "/projects/{project_id}/brand-rank-summary")
     assert route.response_model.__name__ == "Page"
-    assert {parameter.name for parameter in route.dependant.query_params} >= {"days", "prompt_id", "page", "page_size"}
+    assert {parameter.name for parameter in route.dependant.query_params} >= {"days", "prompt_id", "brand_id", "page", "page_size"}

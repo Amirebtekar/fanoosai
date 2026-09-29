@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { FolderKanban, BarChart3, LogOut } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
-import { getBrandRankSummary, getCurrentUser, listProjects, listPrompts, logout, type BrandRankSummaryItem, type ProjectRead, type PromptRead } from '@/lib/api'
+import { getBrandRankSummary, getCurrentUser, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -84,7 +84,9 @@ function BrandRankReport() {
   const [projects, setProjects] = useState<ProjectRead[]>([])
   const [projectId, setProjectId] = useState('')
   const [prompts, setPrompts] = useState<PromptRead[]>([])
+  const [brands, setBrands] = useState<ObservedBrand[]>([])
   const [promptId, setPromptId] = useState('all')
+  const [brandId, setBrandId] = useState('all')
   const [days, setDays] = useState<7 | 30>(7)
   const [result, setResult] = useState<{ key: string; items: BrandRankSummaryItem[]; error?: boolean } | null>(null)
   const [projectsLoaded, setProjectsLoaded] = useState(false)
@@ -103,18 +105,23 @@ function BrandRankReport() {
     if (projectId) listPrompts(Number(projectId)).then(setPrompts).catch(() => setPrompts([]))
   }, [projectId])
 
-  const requestKey = `${projectId}:${promptId}:${days}`
+  useEffect(() => {
+    if (projectId) listObservedBrands(Number(projectId)).then(setBrands).catch(() => setBrands([]))
+  }, [projectId])
+
+  const requestKey = `${projectId}:${promptId}:${brandId}:${days}`
   useEffect(() => {
     if (!projectId) return
     getBrandRankSummary(Number(projectId), {
       days,
       prompt_id: promptId === 'all' ? undefined : Number(promptId),
+      brand_id: brandId === 'all' ? undefined : Number(brandId),
       page: 1,
       page_size: 100,
     })
       .then(page => setResult({ key: requestKey, items: page.items }))
       .catch(() => setResult({ key: requestKey, items: [], error: true }))
-  }, [projectId, promptId, days, requestKey])
+  }, [projectId, promptId, brandId, days, requestKey])
 
   const current = result?.key === requestKey ? result : null
 
@@ -125,9 +132,9 @@ function BrandRankReport() {
         <CardDescription>میانگین رتبهٔ برندها در همهٔ مدل‌ها، طی ۷ یا ۳۰ روز گذشته؛ رتبهٔ کمتر بهتر است.</CardDescription>
       </CardHeader>
       <CardContent className='space-y-4'>
-        <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+        <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
           <label className='grid gap-1.5 text-sm font-bold'>پروژه
-            <Select value={projectId} onValueChange={value => { setProjectId(value); setPromptId('all') }} disabled={!projects.length}>
+            <Select value={projectId} onValueChange={value => { setProjectId(value); setPromptId('all'); setBrandId('all') }} disabled={!projects.length}>
               <SelectTrigger className='border-border bg-background'><SelectValue placeholder='انتخاب پروژه' /></SelectTrigger>
               <SelectContent>{projects.map(project => <SelectItem key={project.id} value={String(project.id)}>{project.name}</SelectItem>)}</SelectContent>
             </Select>
@@ -138,6 +145,15 @@ function BrandRankReport() {
               <SelectContent>
                 <SelectItem value='all'>همهٔ پرامپت‌ها</SelectItem>
                 {prompts.map(prompt => <SelectItem key={prompt.id} value={String(prompt.id)}>{prompt.text.slice(0, 65)}{prompt.text.length > 65 ? '...' : ''}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className='grid gap-1.5 text-sm font-bold'>برند
+            <Select value={brandId} onValueChange={setBrandId} disabled={!projectId}>
+              <SelectTrigger className='border-border bg-background'><SelectValue placeholder='همهٔ برندها' /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>همهٔ برندها</SelectItem>
+                {brands.map(brand => <SelectItem key={brand.brand_id} value={String(brand.brand_id)}>{brand.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </label>

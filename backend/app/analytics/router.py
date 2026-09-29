@@ -185,6 +185,7 @@ async def brand_rank_summary(
     project_id: int,
     days: int = Query(7),
     prompt_id: int | None = Query(None, gt=0),
+    brand_id: int | None = Query(None, gt=0),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
@@ -219,6 +220,8 @@ async def brand_rank_summary(
     )
     if prompt_id is not None:
         stmt = stmt.where(Prompt.id == prompt_id)
+    if brand_id is not None:
+        stmt = stmt.where(Brand.id == brand_id)
     total = await session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = (await session.execute(
         stmt.order_by(func.avg(RunBrand.rank), Brand.name)
