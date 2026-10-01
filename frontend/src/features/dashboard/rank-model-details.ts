@@ -46,6 +46,20 @@ export function summarizeModelRanks(items: BrandTrend[], dayKeys: string[]) {
   }).sort((a, b) => (a.average_rank ?? Infinity) - (b.average_rank ?? Infinity) || a.ai_model.localeCompare(b.ai_model))
 }
 
+export function rankDetailsCsv(rows: ReturnType<typeof summarizeModelRanks>, dayKeys: string[]): string {
+  const headers = ['مدل', 'میانگین رتبه', 'آخرین رتبه', 'تغییر', 'تعداد مشاهده', ...dayKeys]
+  const values = rows.map(row => [
+    row.ai_model,
+    row.average_rank?.toFixed(2) ?? '',
+    row.latest_rank ?? '',
+    row.rank_change ?? '',
+    row.observations,
+    ...dayKeys.map(day => row.daily[day] ?? ''),
+  ])
+  const escape = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
+  return `\uFEFF${[headers, ...values].map(line => line.map(escape).join(',')).join('\r\n')}`
+}
+
 export function tehranBounds(dayKeys: string[]) {
   const start = [...dayKeys].reverse()[0]
   const end = dayKeys[0]

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
+import { rankDetailsCsv, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 describe('dashboard brand rank model details', () => {
   it('averages daily ranks by model over all models and includes all days', () => {
@@ -32,6 +32,24 @@ describe('dashboard brand rank model details', () => {
     expect(rows[0]).toMatchObject({ ai_model: 'model-b', average_rank: 1, latest_rank: 1, rank_change: null, observations: 1 })
     expect(rows[1]).toMatchObject({ ai_model: 'model-a', average_rank: 3, latest_rank: 4, rank_change: 2, observations: 2 })
     expect(rows[1].daily).toEqual({ '2026-09-26': 2, '2026-09-27': 4 })
+  })
+
+  it('exports model detail rows and selected daily columns as CSV', () => {
+    const rows = summarizeModelRanks([{
+      brand_id: 1,
+      brand: 'پارس‌پک',
+      domain: 'parspack.com',
+      ai_model_id: 7,
+      ai_model: 'model-a',
+      points: [{ date: '2026-09-26T22:00:00Z', rank: 2, ai_run_id: 1 }],
+      trend: 'flat',
+    }], ['2026-09-27', '2026-09-26'])
+
+    const csv = rankDetailsCsv(rows, ['2026-09-27', '2026-09-26'])
+
+    expect(csv.charCodeAt(0)).toBe(0xFEFF)
+    expect(csv).toContain('"مدل","میانگین رتبه","آخرین رتبه","تغییر","تعداد مشاهده","2026-09-27","2026-09-26"')
+    expect(csv).toContain('"model-a","2.00","2","","1","2",""')
   })
 
   it('builds a seven-day Tehran range and UTC query boundaries', () => {

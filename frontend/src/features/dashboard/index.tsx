@@ -1,14 +1,15 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { FolderKanban, BarChart3, LogOut } from 'lucide-react'
+import { Download, FolderKanban, BarChart3, LogOut, Printer } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { getBrandRankSummary, getCurrentUser, getPromptBrandTrends, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type BrandTrend, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
+import { rankDetailsCsv, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -146,14 +147,34 @@ function BrandRankReport() {
       .catch(() => setTrendResult({ key, items: [], error: true }))
   }
 
+  const downloadCsv = (item: BrandRankSummaryItem, details: ReturnType<typeof summarizeModelRanks>) => {
+    const csv = rankDetailsCsv(details, dayKeys)
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `brand-ranks-${item.prompt_id}-${item.brand_id}-${days}d.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const printPdf = () => {
+    const className = 'printing-brand-rank-details'
+    const cleanup = () => document.body.classList.remove(className)
+    document.body.classList.add(className)
+    window.addEventListener('afterprint', cleanup, { once: true })
+    window.print()
+  }
+
   return (
-    <Card className='mt-6 border-border shadow-[6px_6px_0_var(--color-shadow)]'>
+    <Card className='brand-rank-report-card mt-6 border-border shadow-[6px_6px_0_var(--color-shadow)]'>
       <CardHeader className='gap-2'>
         <CardTitle className='text-lg font-black'>گزارش رتبه برندها</CardTitle>
         <CardDescription>میانگین رتبهٔ برندها در همهٔ مدل‌ها، طی ۷ یا ۳۰ روز گذشته؛ رتبهٔ کمتر بهتر است.</CardDescription>
       </CardHeader>
       <CardContent className='space-y-4'>
-        <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+        <div className='brand-rank-filters grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
           <label className='grid gap-1.5 text-sm font-bold'>پروژه
             <Select value={projectId} onValueChange={value => { setProjectId(value); setPromptId('all'); setBrandId('all') }} disabled={!projects.length}>
               <SelectTrigger className='border-border bg-background'><SelectValue placeholder='انتخاب پروژه' /></SelectTrigger>
@@ -194,7 +215,7 @@ function BrandRankReport() {
         {projectId && !current && <Skeleton className='h-32 w-full bg-accent' />}
         {current && !current.error && (current.items.length ? (
           <div className='overflow-x-auto border border-border/70'>
-            <table className='w-full min-w-[640px] text-right text-sm'>
+            <table className='rank-summary-table w-full min-w-[640px] text-right text-sm'>
               <thead className='border-b-2 border-border bg-muted/30 text-muted-text'>
                 <tr><th scope='col' className='p-2'>پرامپت</th><th scope='col' className='p-2'>برند</th><th scope='col' className='p-2'>میانگین رتبه</th><th scope='col' className='p-2'>تعداد مشاهده</th></tr>
               </thead>
@@ -214,11 +235,19 @@ function BrandRankReport() {
                       <td className='p-2 font-black tabular-nums'>{item.average_rank.toFixed(2)}</td>
                       <td className='p-2 tabular-nums'>{item.observations.toLocaleString('fa-IR')}</td>
                     </tr>
-                    {isExpanded && <tr key={`${detailKey}-details`} className='border-b-2 border-border bg-muted/10'>
+                    {isExpanded && <tr key={`${detailKey}-details`} className='brand-rank-details-row border-b-2 border-border bg-muted/10'>
                       <td colSpan={4} className='p-3'>
+                        <div className='brand-rank-print-heading hidden pb-3 text-sm font-bold print:block'>
+                          گزارش رتبهٔ روزانه: {item.prompt} — {item.brand} ({item.domain}) — بازهٔ {days} روزه
+                        </div>
                         {trendResult?.key !== detailKey ? <Skeleton className='h-20 w-full bg-accent' /> : trendResult.error ? <p role='alert' className='py-3 text-sm font-bold text-red-600'>دریافت جزئیات مدل‌ها ممکن نشد.</p> : details.length === 0 ? <p className='py-3 text-sm text-muted-text'>برای این برند جزئیاتی در این بازه نیست.</p> : (
-                          <div className='overflow-x-auto border border-border/70 bg-card'>
-                            <table className='w-full min-w-[760px] text-right text-xs'>
+                          <>
+                            <div className='brand-rank-details-actions no-print mb-3 flex justify-end gap-2'>
+                              <Button type='button' variant='outline' size='sm' onClick={() => downloadCsv(item, details)}><Download className='me-2 size-4' aria-hidden='true' />دریافت CSV</Button>
+                              <Button type='button' variant='outline' size='sm' onClick={printPdf}><Printer className='me-2 size-4' aria-hidden='true' />دریافت PDF</Button>
+                            </div>
+                            <div className='rank-model-details-scroll overflow-x-auto border border-border/70 bg-card'>
+                            <table className='rank-model-details-table w-full min-w-[760px] text-right text-xs'>
                               <thead className='border-b border-border bg-muted/30 text-muted-text'><tr>
                                 <th className='p-2'>مدل</th><th className='p-2'>میانگین رتبه</th><th className='p-2'>آخرین رتبه</th><th className='p-2'>تغییر</th><th className='p-2'>مشاهده روزانه</th>
                                 {dayKeys.map(day => <th key={day} className='p-2'>{day.replace(/-/g, '/')}</th>)}
@@ -231,10 +260,11 @@ function BrandRankReport() {
                                 <td className='p-2 tabular-nums'>{detail.observations.toLocaleString('fa-IR')}</td>
                                 {dayKeys.map(day => <td key={day} className='p-2 text-center tabular-nums'>{detail.daily[day] ?? '—'}</td>)}
                               </tr>)}</tbody>
-                            </table>
-                          </div>
-                        )}
-                      </td>
+                             </table>
+                           </div>
+                           </>
+                         )}
+                       </td>
                     </tr>}
                   </Fragment>
                 })}

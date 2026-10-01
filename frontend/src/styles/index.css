@@ -133,4 +133,34 @@
     padding: 4px !important;
     white-space: normal !important;
   }
+  body.printing-brand-rank-details #content > :not(.brand-rank-report-card),
+  body.printing-brand-rank-details .brand-rank-report-card > [data-slot='card-header'],
+  body.printing-brand-rank-details .brand-rank-filters,
+  body.printing-brand-rank-details .rank-summary-table > thead,
+  body.printing-brand-rank-details .rank-summary-table tbody > tr:not(.brand-rank-details-row) {
+    display: none !important;
+  }
+  body.printing-brand-rank-details .brand-rank-report-card {
+    margin: 0 !important;
+    border: 0 !important;
+    padding: 0 !important;
+  }
+  body.printing-brand-rank-details .brand-rank-details-row {
+    display: table-row !important;
+  }
+  body.printing-brand-rank-details .rank-model-details-scroll {
+    overflow: visible !important;
+    border: 0 !important;
+  }
+  body.printing-brand-rank-details .rank-model-details-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    font-size: 8pt !important;
+  }
+  body.printing-brand-rank-details .rank-model-details-table th,
+  body.printing-brand-rank-details .rank-model-details-table td {
+    position: static !important;
+    padding: 4px !important;
+    white-space: normal !important;
+  }
 }
