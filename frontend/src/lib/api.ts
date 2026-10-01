@@ -108,6 +108,16 @@ export function getBrandRankSummary(projectId: number, params: { days?: 7 | 30; 
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) })
   return authRequest('GET', `/projects/${projectId}/brand-rank-summary?${query}`)
 }
+export async function getAllBrandRankSummary(projectId: number, filters: { days: 7 | 30; prompt_id?: number; brand_id?: number }): Promise<BrandRankSummaryItem[]> {
+  const items: BrandRankSummaryItem[] = []
+  let page = 1
+  while (true) {
+    const result = await getBrandRankSummary(projectId, { ...filters, page, page_size: 100 })
+    items.push(...result.items)
+    if (items.length >= result.total || result.items.length === 0) return items
+    page += 1
+  }
+}
 export function listAlerts(projectId: number): Promise<AlertItem[]> { return authRequest('GET', '/projects/' + projectId + '/alerts') }
 export function addAlertRule(projectId: number, kind: string, cooldown_hours = 24): Promise<unknown> { return authRequest('POST', `/projects/${projectId}/alert-rules?kind=${kind}&cooldown_hours=${cooldown_hours}`) }
 export function readAlert(projectId: number, alertId: number): Promise<void> { return authRequest('POST', `/projects/${projectId}/alerts/${alertId}/read`) }

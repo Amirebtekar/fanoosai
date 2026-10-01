@@ -1,5 +1,40 @@
-import { describe, expect, it } from 'vitest'
-import { ApiError, getErrorMessage } from './api'
+import { describe, expect, it, vi } from 'vitest'
+import { ApiError, getAllBrandRankSummary, getErrorMessage } from './api'
+
+describe('getAllBrandRankSummary', () => {
+  it('loads every page using the selected project, prompt, brand and period filters', async () => {
+    const originalFetch = globalThis.fetch
+    const requestedUrls: string[] = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      requestedUrls.push(url)
+      const page = Number(new URL(url, 'http://test.local').searchParams.get('page'))
+      const items = Array.from({ length: page === 1 ? 100 : 1 }, (_, index) => ({
+        prompt_id: 33,
+        prompt: 'prompt text',
+        brand_id: 2,
+        brand: `Brand ${index}`,
+        domain: 'brand.example',
+        average_rank: 1.5,
+        observations: 1,
+      }))
+      return { ok: true, status: 200, text: async () => JSON.stringify({ items, page, page_size: 100, total: 101 }) } as Response
+    })
+    globalThis.fetch = fetchMock as typeof fetch
+    try {
+      const items = await getAllBrandRankSummary(10, { days: 7, prompt_id: 33, brand_id: 2 })
+      expect(items).toHaveLength(101)
+      expect(requestedUrls).toHaveLength(2)
+      expect(requestedUrls[0]).toContain('/projects/10/brand-rank-summary?')
+      expect(requestedUrls[0]).toContain('prompt_id=33')
+      expect(requestedUrls[0]).toContain('brand_id=2')
+      expect(requestedUrls[0]).toContain('days=7')
+      expect(requestedUrls[1]).toContain('page=2')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
 
 describe('getErrorMessage', () => {
   it('returns fallback for unknown errors', () => {

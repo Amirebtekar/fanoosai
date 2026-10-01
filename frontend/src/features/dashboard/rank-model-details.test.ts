@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { rankDetailsCsv, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
+import { brandRankSummaryCsv, brandRankSummaryPrintHtml, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 describe('dashboard brand rank model details', () => {
   it('averages daily ranks by model over all models and includes all days', () => {
@@ -34,22 +34,27 @@ describe('dashboard brand rank model details', () => {
     expect(rows[1].daily).toEqual({ '2026-09-26': 2, '2026-09-27': 4 })
   })
 
-  it('exports model detail rows and selected daily columns as CSV', () => {
-    const rows = summarizeModelRanks([{
-      brand_id: 1,
-      brand: 'پارس‌پک',
-      domain: 'parspack.com',
-      ai_model_id: 7,
-      ai_model: 'model-a',
-      points: [{ date: '2026-09-26T22:00:00Z', rank: 2, ai_run_id: 1 }],
-      trend: 'flat',
-    }], ['2026-09-27', '2026-09-26'])
-
-    const csv = rankDetailsCsv(rows, ['2026-09-27', '2026-09-26'])
+  it('exports all filtered summary rows and prevents spreadsheet formulas', () => {
+    const csv = brandRankSummaryCsv([
+      { prompt_id: 1, prompt: 'هاست "ارزان"', brand_id: 2, brand: 'پارس‌پک', domain: 'parspack.com', average_rank: 2.5, observations: 3 },
+      { prompt_id: 3, prompt: '=HYPERLINK("https://bad.example")', brand_id: 4, brand: 'ایران‌سرور', domain: null, average_rank: 1, observations: 1 },
+    ])
 
     expect(csv.charCodeAt(0)).toBe(0xFEFF)
-    expect(csv).toContain('"مدل","میانگین رتبه","آخرین رتبه","تغییر","تعداد مشاهده","2026-09-27","2026-09-26"')
-    expect(csv).toContain('"model-a","2.00","2","","1","2",""')
+    expect(csv).toContain('"هاست ""ارزان""","پارس‌پک","parspack.com","2.50","3"')
+    expect(csv).toContain('"\'=HYPERLINK(""https://bad.example"")","ایران‌سرور","","1.00","1"')
+    expect(csv.split('\r\n')).toHaveLength(3)
+  })
+
+  it('prints the whole filtered summary and escapes user-provided text', () => {
+    const html = brandRankSummaryPrintHtml([
+      { prompt_id: 1, prompt: '<script>alert(1)</script>', brand_id: 2, brand: 'پارس‌پک', domain: 'parspack.com', average_rank: 2.5, observations: 3 },
+    ], { project: '<img src=x>', prompt: 'همه', brand: 'پارس‌پک', days: 7 })
+
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(html).toContain('&lt;img src=x&gt;')
+    expect(html).toContain('2.50')
+    expect(html).not.toContain('<script>alert(1)</script>')
   })
 
   it('builds a seven-day Tehran range and UTC query boundaries', () => {

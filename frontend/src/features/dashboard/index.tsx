@@ -1,15 +1,16 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Download, FolderKanban, BarChart3, LogOut, Printer } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
-import { getBrandRankSummary, getCurrentUser, getPromptBrandTrends, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type BrandTrend, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
+import { getAllBrandRankSummary, getBrandRankSummary, getCurrentUser, getPromptBrandTrends, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type BrandTrend, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { rankDetailsCsv, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
+import { brandRankSummaryCsv, brandRankSummaryPrintHtml, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -91,6 +92,7 @@ function BrandRankReport() {
   const [brandId, setBrandId] = useState('all')
   const [days, setDays] = useState<7 | 30>(7)
   const [result, setResult] = useState<{ key: string; items: BrandRankSummaryItem[]; error?: boolean } | null>(null)
+  const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
   const [expandedKey, setExpandedKey] = useState('')
   const [trendResult, setTrendResult] = useState<{ key: string; items: BrandTrend[]; error?: boolean } | null>(null)
   const [projectsLoaded, setProjectsLoaded] = useState(false)
@@ -147,31 +149,75 @@ function BrandRankReport() {
       .catch(() => setTrendResult({ key, items: [], error: true }))
   }
 
-  const downloadCsv = (item: BrandRankSummaryItem, details: ReturnType<typeof summarizeModelRanks>) => {
-    const csv = rankDetailsCsv(details, dayKeys)
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `brand-ranks-${item.prompt_id}-${item.brand_id}-${days}d.csv`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
+  const reportFilters = () => ({
+    days,
+    prompt_id: promptId === 'all' ? undefined : Number(promptId),
+    brand_id: brandId === 'all' ? undefined : Number(brandId),
+  })
+
+  const downloadCsv = async () => {
+    if (!projectId || exporting) return
+    const filters = reportFilters()
+    const fileName = `brand-ranks-project-${projectId}-${days}d.csv`
+    setExporting('csv')
+    try {
+      const rows = await getAllBrandRankSummary(Number(projectId), filters)
+      const url = URL.createObjectURL(new Blob([brandRankSummaryCsv(rows)], { type: 'text/csv;charset=utf-8' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch {
+      toast.error('دریافت CSV ممکن نشد')
+    } finally {
+      setExporting(null)
+    }
   }
 
-  const printPdf = () => {
-    const className = 'printing-brand-rank-details'
-    const cleanup = () => document.body.classList.remove(className)
-    document.body.classList.add(className)
-    window.addEventListener('afterprint', cleanup, { once: true })
-    window.print()
+  const printPdf = async () => {
+    if (!projectId || exporting) return
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      toast.error('مرورگر پنجرهٔ PDF را مسدود کرده است')
+      return
+    }
+    printWindow.opener = null
+    const filters = reportFilters()
+    const selectedProject = projects.find(project => String(project.id) === projectId)?.name ?? projectId
+    const selectedPrompt = promptId === 'all' ? 'همهٔ پرامپت‌ها' : prompts.find(prompt => String(prompt.id) === promptId)?.text ?? promptId
+    const selectedBrand = brandId === 'all' ? 'همهٔ برندها' : brands.find(brand => String(brand.brand_id) === brandId)?.name ?? brandId
+    setExporting('pdf')
+    try {
+      const rows = await getAllBrandRankSummary(Number(projectId), filters)
+      const html = brandRankSummaryPrintHtml(rows, { project: selectedProject, prompt: selectedPrompt, brand: selectedBrand, days })
+      printWindow.document.open()
+      printWindow.document.write(html)
+      printWindow.document.close()
+      printWindow.focus()
+      printWindow.onafterprint = () => printWindow.close()
+      printWindow.print()
+    } catch {
+      printWindow.close()
+      toast.error('دریافت PDF ممکن نشد')
+    } finally {
+      setExporting(null)
+    }
   }
 
   return (
     <Card className='brand-rank-report-card mt-6 border-border shadow-[6px_6px_0_var(--color-shadow)]'>
-      <CardHeader className='gap-2'>
-        <CardTitle className='text-lg font-black'>گزارش رتبه برندها</CardTitle>
-        <CardDescription>میانگین رتبهٔ برندها در همهٔ مدل‌ها، طی ۷ یا ۳۰ روز گذشته؛ رتبهٔ کمتر بهتر است.</CardDescription>
+      <CardHeader className='flex flex-row flex-wrap items-start justify-between gap-3'>
+        <div className='space-y-2'>
+          <CardTitle className='text-lg font-black'>گزارش رتبه برندها</CardTitle>
+          <CardDescription>میانگین رتبهٔ برندها در همهٔ مدل‌ها، طی ۷ یا ۳۰ روز گذشته؛ رتبهٔ کمتر بهتر است.</CardDescription>
+        </div>
+        <div className='flex gap-2'>
+          <Button type='button' variant='outline' size='sm' disabled={!current?.items.length || Boolean(current.error) || Boolean(exporting)} onClick={() => void downloadCsv()}><Download className='me-2 size-4' aria-hidden='true' />{exporting === 'csv' ? 'در حال آماده‌سازی...' : 'دانلود CSV'}</Button>
+          <Button type='button' variant='outline' size='sm' disabled={!current?.items.length || Boolean(current.error) || Boolean(exporting)} onClick={() => void printPdf()}><Printer className='me-2 size-4' aria-hidden='true' />{exporting === 'pdf' ? 'در حال آماده‌سازی...' : 'دانلود PDF'}</Button>
+        </div>
       </CardHeader>
       <CardContent className='space-y-4'>
         <div className='brand-rank-filters grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
@@ -237,15 +283,8 @@ function BrandRankReport() {
                     </tr>
                     {isExpanded && <tr key={`${detailKey}-details`} className='brand-rank-details-row border-b-2 border-border bg-muted/10'>
                       <td colSpan={4} className='p-3'>
-                        <div className='brand-rank-print-heading hidden pb-3 text-sm font-bold print:block'>
-                          گزارش رتبهٔ روزانه: {item.prompt} — {item.brand} ({item.domain}) — بازهٔ {days} روزه
-                        </div>
                         {trendResult?.key !== detailKey ? <Skeleton className='h-20 w-full bg-accent' /> : trendResult.error ? <p role='alert' className='py-3 text-sm font-bold text-red-600'>دریافت جزئیات مدل‌ها ممکن نشد.</p> : details.length === 0 ? <p className='py-3 text-sm text-muted-text'>برای این برند جزئیاتی در این بازه نیست.</p> : (
                           <>
-                            <div className='brand-rank-details-actions no-print mb-3 flex justify-end gap-2'>
-                              <Button type='button' variant='outline' size='sm' onClick={() => downloadCsv(item, details)}><Download className='me-2 size-4' aria-hidden='true' />دریافت CSV</Button>
-                              <Button type='button' variant='outline' size='sm' onClick={printPdf}><Printer className='me-2 size-4' aria-hidden='true' />دریافت PDF</Button>
-                            </div>
                             <div className='rank-model-details-scroll overflow-x-auto border border-border/70 bg-card'>
                             <table className='rank-model-details-table w-full min-w-[760px] text-right text-xs'>
                               <thead className='border-b border-border bg-muted/30 text-muted-text'><tr>
