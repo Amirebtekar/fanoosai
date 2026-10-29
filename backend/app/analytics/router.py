@@ -260,7 +260,7 @@ async def brand_rank_summary(
 RADAR_STRENGTH_WEIGHTS = {
     "visibility": 0.35,
     "rank_score": 0.25,
-    "first_place": 0.15,
+    "top_three": 0.15,
     "model_coverage": 0.15,
     "prompt_coverage": 0.10,
 }
@@ -286,28 +286,20 @@ def build_competitor_radar(
     limit: int,
     days: int,
 ) -> CompetitorRadar:
-    """Turn per-brand aggregates into radar axes and a combined strength score.
-
-    ``rows`` holds (brand_id, name, domain, appearances, avg_rank, first_places, models, prompts),
-    where ``appearances`` counts distinct answers the brand was in.
-    """
     def pct(value: int, total: int) -> float:
         return round(min(100.0, value / total * 100.0), 1) if total else 0.0
 
-    # Rank quality is only trustworthy with enough answers: a brand seen in 5 of 1000
-    # answers must not look as strong as one seen in 600. Scale the rank-based axes by
-    # min(1, appearances / min_sample), with min_sample = 5% of answers (at least 5).
     min_sample = max(RADAR_MIN_SAMPLE, total_runs * RADAR_MIN_SAMPLE_SHARE)
 
     brands = []
-    for brand_id, name, domain, appearances, avg_rank, first_places, models, prompts in rows:
+    for brand_id, name, domain, appearances, avg_rank, top_three_count, models, prompts in rows:
         appearances = int(appearances or 0)
         average = float(avg_rank) if avg_rank is not None else None
         confidence = min(1.0, appearances / min_sample) if min_sample else 0.0
         axes = {
             "visibility": pct(appearances, total_runs),
             "rank_score": round(rank_score(average) * confidence, 1),
-            "first_place": round(pct(int(first_places or 0), appearances) * confidence, 1),
+            "top_three": pct(int(top_three_count or 0), appearances),
             "model_coverage": pct(int(models or 0), total_models),
             "prompt_coverage": pct(int(prompts or 0), total_prompts),
         }
@@ -316,7 +308,7 @@ def build_competitor_radar(
         brands.append(CompetitorRadarBrand(
             brand_id=brand_id, brand=name, domain=domain, is_owned=is_owned, strength=strength, **axes,
             appearances=appearances, average_rank=round(average, 2) if average is not None else None,
-            first_place_count=int(first_places or 0), models=int(models or 0), prompts=int(prompts or 0),
+            top_three_count=int(top_three_count or 0), models=int(models or 0), prompts=int(prompts or 0),
         ))
     brands.sort(key=lambda item: (-item.strength, -item.appearances, item.brand))
     owned = [item for item in brands if item.is_owned]
@@ -351,7 +343,9 @@ async def competitor_radar(
         run_filter.append(Prompt.id == prompt_id)
 
     total_runs, total_models, total_prompts = (await session.execute(
-        select(func.count(AIRun.id), func.count(distinct(AIRun.ai_model_id)), func.count(distinct(AIRun.prompt_id)))
+        select(
+            func.count(AIRun.id), func.count(distinct(AIRun.ai_model_id)), func.count(distinct(AIRun.prompt_id)),
+        )
         .select_from(AIRun).join(Prompt, Prompt.id == AIRun.prompt_id)
         .where(*run_filter)
     )).one()
@@ -361,7 +355,7 @@ async def competitor_radar(
             Brand.id, Brand.name, Brand.domain,
             func.count(distinct(RunBrand.ai_run_id)),
             func.avg(RunBrand.rank),
-            func.count(distinct(RunBrand.ai_run_id)).filter(RunBrand.rank == 1),
+            func.count(distinct(RunBrand.ai_run_id)).filter(RunBrand.rank <= 3),
             func.count(distinct(AIRun.ai_model_id)),
             func.count(distinct(AIRun.prompt_id)),
         )

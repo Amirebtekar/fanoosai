@@ -120,8 +120,8 @@ export async function getAllBrandRankSummary(projectId: number, filters: { days:
 }
 export interface CompetitorRadarBrand {
   brand_id: number; brand: string; domain: string | null; is_owned: boolean; strength: number
-  visibility: number; rank_score: number; first_place: number; model_coverage: number; prompt_coverage: number
-  appearances: number; average_rank: number | null; first_place_count: number; models: number; prompts: number
+  visibility: number; rank_score: number; top_three: number; model_coverage: number; prompt_coverage: number
+  appearances: number; average_rank: number | null; top_three_count: number; models: number; prompts: number
 }
 export interface CompetitorRadar { days: number; total_runs: number; total_models: number; total_prompts: number; brands: CompetitorRadarBrand[] }
 export function getCompetitorRadar(projectId: number, params: { days: 7 | 30; prompt_id?: number; limit?: number }): Promise<CompetitorRadar> {

@@ -4,7 +4,7 @@ import { getCompetitorRadar, type CompetitorRadar as CompetitorRadarData, type P
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import { RADAR_AXES, compareWithOwn, radarRows, radarSeries } from './competitor-radar-data'
+import { RADAR_AXES, compareWithOwn, topThreeDetails, radarRows, radarSeries } from './competitor-radar-data'
 
 export function CompetitorRadarCard({ projectId, prompts }: { projectId: string; prompts: PromptRead[] }) {
   const [days, setDays] = useState<7 | 30>(30)
@@ -96,7 +96,10 @@ export function CompetitorRadarCard({ projectId, prompts }: { projectId: string;
                     <PolarRadiusAxis domain={[0, 100]} tickCount={5} angle={90} tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} />
                     <Tooltip
                       contentStyle={{ background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--popover-foreground)', direction: 'rtl' }}
-                      formatter={(value, name) => [Number(value).toLocaleString('fa-IR'), name]}
+                      formatter={(value, name, entry) => {
+                        const brand = series.find(item => item.key === entry.dataKey)
+                        return [entry.payload?.axis === 'حضور در ۳ رتبه اول' && brand ? topThreeDetails(brand) : Number(value).toLocaleString('fa-IR'), name]
+                      }}
                     />
                     {series.filter(item => visible.has(item.key)).map(item => (
                       <Radar
@@ -131,6 +134,7 @@ export function CompetitorRadarCard({ projectId, prompts }: { projectId: string;
                         در {item.appearances.toLocaleString('fa-IR')} از {current.data!.total_runs.toLocaleString('fa-IR')} پاسخ · میانگین رتبه {item.average_rank?.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) ?? '—'}
                         {compareWithOwn(item, own) && ` · ${compareWithOwn(item, own)}`}
                       </span>
+                      <span className='block text-xs text-muted-text'>{topThreeDetails(item)}</span>
                     </span>
                     <span className='shrink-0 text-lg font-black tabular-nums'>{item.strength.toLocaleString('fa-IR')}</span>
                   </button>
@@ -141,7 +145,7 @@ export function CompetitorRadarCard({ projectId, prompts }: { projectId: string;
               <summary className='cursor-pointer font-bold text-foreground'>شاخص‌ها چطور حساب می‌شوند؟</summary>
               <ul className='mt-2 list-disc space-y-1 ps-5'>
                 {RADAR_AXES.map(axis => <li key={axis.key}><span className='font-bold text-foreground'>{axis.label}:</span> {axis.hint}</li>)}
-                <li><span className='font-bold text-foreground'>امتیاز قدرت:</span> میانگین وزنی شاخص‌ها (دیده‌شدن ۳۵٪، رتبه ۲۵٪، نفر اول ۱۵٪، پوشش مدل‌ها ۱۵٪، پوشش پرامپت‌ها ۱۰٪).</li>
+                <li><span className='font-bold text-foreground'>امتیاز قدرت:</span> میانگین وزنی شاخص‌ها (دیده‌شدن ۳۵٪، رتبه ۲۵٪، حضور در ۳ رتبه اول ۱۵٪، پوشش مدل‌ها ۱۵٪، پوشش پرامپت‌ها ۱۰٪).</li>
               </ul>
             </details>
           </>

@@ -29,9 +29,9 @@ def test_axes_are_percentages_and_strength_is_weighted():
         owned_domains=set(), owned_brand_ids=set(), limit=6, days=7,
     )
     brand = radar.brands[0]
-    assert (brand.visibility, brand.rank_score, brand.first_place, brand.model_coverage, brand.prompt_coverage) == (100.0, 100.0, 100.0, 100.0, 100.0)
+    assert (brand.visibility, brand.rank_score, brand.top_three, brand.model_coverage, brand.prompt_coverage) == (100.0, 100.0, 100.0, 100.0, 100.0)
     assert brand.strength == 100.0
-    assert brand.appearances == 32 and brand.first_place_count == 32
+    assert brand.appearances == 32 and brand.top_three_count == 32
 
 
 def test_strongest_competitors_first_and_own_brand_always_included():
@@ -74,7 +74,8 @@ def test_rank_axes_are_discounted_for_brands_with_few_answers():
     rare = next(b for b in radar.brands if b.brand == "rare")
     steady = next(b for b in radar.brands if b.brand == "steady")
     assert rare.rank_score == round(rank_score(1.2) * 5 / 50, 1)
-    assert rare.first_place == 8.0  # 80% first place x confidence 0.1
+    assert rare.top_three == 80.0
+    assert rare.top_three_count == 4
     assert steady.rank_score == rank_score(2.5)
     assert [b.brand for b in radar.brands] == ["steady", "rare"]
 
@@ -84,12 +85,37 @@ def test_small_windows_use_minimum_sample_of_five():
         [row(1, "a", "a.ir", 5, 1.0, 5, 1, 1)], total_runs=32, total_models=5, total_prompts=1,
         owned_domains=set(), owned_brand_ids=set(), limit=6, days=7,
     )
-    assert radar.brands[0].rank_score == 100.0 and radar.brands[0].first_place == 100.0
+    assert radar.brands[0].rank_score == 100.0 and radar.brands[0].top_three == 100.0
 
 
 def test_empty_window_returns_no_brands_and_zero_totals():
     radar = build_competitor_radar([], total_runs=0, total_models=0, total_prompts=0, owned_domains=set(), owned_brand_ids=set(), limit=6, days=7)
     assert radar.brands == [] and radar.total_runs == 0
+
+
+@pytest.mark.parametrize("appearances,count,score", [(10, 8, 80.0), (3, 1, 33.3), (5, 5, 100.0), (5, 0, 0.0), (0, 0, 0.0), (0, None, 0.0)])
+def test_top_three_uses_brand_appearances_without_confidence_discount(appearances, count, score):
+    radar = build_competitor_radar(
+        [row(1, "a", "a.ir", appearances, None, count, 0, 0)],
+        total_runs=1000, total_models=0, total_prompts=0,
+        owned_domains=set(), owned_brand_ids=set(), limit=6, days=7,
+    )
+    brand = radar.brands[0]
+    assert brand.top_three == score
+    assert brand.top_three_count == (count or 0)
+    assert brand.strength == round(brand.visibility * 0.35 + score * 0.15, 1)
+    assert brand.rank_score == 0.0
+    assert "growth" not in brand.model_dump()
+
+
+def test_top_three_has_fifteen_percent_weight():
+    radar = build_competitor_radar(
+        [row(1, "a", "a.ir", 10, 2.0, 0, 1, 1), row(2, "b", "b.ir", 10, 2.0, 10, 1, 1)],
+        total_runs=20, total_models=1, total_prompts=1,
+        owned_domains=set(), owned_brand_ids=set(), limit=6, days=7,
+    )
+    assert radar.brands[0].brand_id == 2
+    assert radar.brands[0].strength - radar.brands[1].strength == 15.0
 
 
 class Result:
@@ -122,17 +148,24 @@ async def test_endpoint_filters_project_window_and_prompt(monkeypatch):
     monkeypatch.setattr(analytics_router, "model_performance_window", lambda days: (
         datetime(2026, 10, 22, tzinfo=ZoneInfo("UTC")), datetime(2026, 10, 29, tzinfo=ZoneInfo("UTC")),
     ))
-    session = Session((32, 5, 1), [row(1, "پارس‌پک", "parspack.com", 30, 3.27, 0, 5, 1)], [(None, "ParsPack.com")])
+    session = Session((32, 5, 1), [row(1, "پارس‌پک", "parspack.com", 30, 3.27, 18, 5, 1)], [(None, "ParsPack.com")])
 
     radar = await analytics_router.competitor_radar(10, days=7, prompt_id=29, limit=6, session=session, user=SimpleNamespace(id=1))
 
     assert radar.total_runs == 32 and radar.brands[0].is_owned
+    assert radar.brands[0].top_three_count == 18
+    assert radar.brands[0].top_three == 60.0
+    brand_sql = str(session.statements[1].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert "count(DISTINCT run_brands.ai_run_id) FILTER (WHERE run_brands.rank <= 3)" in brand_sql
+    assert "run_brands.rank = 1" not in brand_sql
     for statement in session.statements[:2]:
         sql = str(statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
         assert "prompts.project_id = 10" in sql
         assert "ai_runs.status = 'success'" in sql
         assert "prompts.id = 29" in sql
         assert "ai_runs.created_at >= '2026-10-22 00:00:00+00:00'" in sql
+        assert "ai_runs.created_at < '2026-10-29 00:00:00+00:00'" in sql
+        assert "2026-10-25" not in sql
 
 
 @pytest.mark.asyncio

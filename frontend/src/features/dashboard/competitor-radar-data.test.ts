@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { CompetitorRadarBrand } from '@/lib/api'
-import { OWN_BRAND_COLOR, RADAR_AXES, compareWithOwn, radarRows, radarSeries } from './competitor-radar-data'
+import { OWN_BRAND_COLOR, RADAR_AXES, compareWithOwn, topThreeDetails, radarRows, radarSeries } from './competitor-radar-data'
 
 function brand(id: number, name: string, strength: number, isOwned = false): CompetitorRadarBrand {
   return {
     brand_id: id, brand: name, domain: null, is_owned: isOwned, strength,
-    visibility: strength, rank_score: 50, first_place: 10, model_coverage: 80, prompt_coverage: 100,
-    appearances: 3, average_rank: 2, first_place_count: 1, models: 4, prompts: 1,
+    visibility: strength, rank_score: 50, top_three: 66.7, model_coverage: 80, prompt_coverage: 100,
+    appearances: 3, average_rank: 2, top_three_count: 2, models: 4, prompts: 1,
   }
 }
 
@@ -23,7 +23,17 @@ describe('competitor radar data', () => {
     const rows = radarRows(series, new Set(['brand_1']))
     expect(rows).toHaveLength(RADAR_AXES.length)
     expect(rows[0]).toEqual({ axis: 'دیده‌شدن', brand_1: 90 })
+    expect(rows[2]).toEqual({ axis: 'حضور در ۳ رتبه اول', brand_1: 66.7 })
+    expect(RADAR_AXES.map(axis => axis.key)).not.toContain('first_place')
     expect(rows[4]).toEqual({ axis: 'پوشش پرامپت‌ها', brand_1: 100 })
+  })
+
+  it('shows the raw top-three percentage and appearance counts including no data', () => {
+    const item = brand(1, 'a', 50)
+    expect(topThreeDetails(item)).toBe('حضور در ۳ رتبه اول: ۶۶٫۷٪ (۲ از ۳ حضور)')
+    expect(topThreeDetails({ ...item, top_three: 0, top_three_count: 0, appearances: 0 })).toBe('حضور در ۳ رتبه اول: ۰٪ (۰ از ۰ حضور)')
+    expect(RADAR_AXES[2].hint).toContain('بدون کاهش بابت حجم نمونه')
+    expect(radarRows([], new Set()).every(row => Object.keys(row).length === 1)).toBe(true)
   })
 
   it('explains each competitor relative to the own brand', () => {

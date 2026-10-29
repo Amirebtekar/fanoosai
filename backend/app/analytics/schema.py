@@ -142,13 +142,13 @@ class CompetitorRadarBrand(BaseModel):
     # Axes, each normalised to 0..100 (higher is stronger).
     visibility: float
     rank_score: float
-    first_place: float
+    top_three: float
     model_coverage: float
     prompt_coverage: float
     # Raw values behind the axes, for tooltips and the table.
     appearances: int
     average_rank: float | None
-    first_place_count: int
+    top_three_count: int
     models: int
     prompts: int
 

@@ -3,12 +3,16 @@ import type { CompetitorRadarBrand } from '@/lib/api'
 export const RADAR_AXES = [
   { key: 'visibility', label: 'دیده‌شدن', hint: 'درصد پاسخ‌هایی که برند در آن‌ها آمده' },
   { key: 'rank_score', label: 'رتبه', hint: 'امتیاز میانگین رتبه؛ رتبهٔ ۱ = ۱۰۰ و رتبهٔ ۱۰ = ۰. برای برندهایی که در کمتر از ۵٪ پاسخ‌ها آمده‌اند به نسبت کم می‌شود' },
-  { key: 'first_place', label: 'نفر اول', hint: 'درصد حضورهایی که برند رتبهٔ ۱ بوده؛ با همان قاعدهٔ کم‌شدن برای دادهٔ کم' },
+  { key: 'top_three', label: 'حضور در ۳ رتبه اول', hint: 'درصد حضورهای برند که رتبهٔ ۳ یا بهتر داشته‌اند؛ تعداد حضور در ۳ رتبه اول تقسیم بر کل حضورهای برند، بدون کاهش بابت حجم نمونه' },
   { key: 'model_coverage', label: 'پوشش مدل‌ها', hint: 'درصد مدل‌هایی که برند را آورده‌اند' },
   { key: 'prompt_coverage', label: 'پوشش پرامپت‌ها', hint: 'درصد پرامپت‌هایی که برند در آن‌ها آمده' },
 ] as const
 
 export type RadarAxisKey = (typeof RADAR_AXES)[number]['key']
+
+export function topThreeDetails(brand: CompetitorRadarBrand): string {
+  return `حضور در ۳ رتبه اول: ${brand.top_three.toLocaleString('fa-IR')}٪ (${brand.top_three_count.toLocaleString('fa-IR')} از ${brand.appearances.toLocaleString('fa-IR')} حضور)`
+}
 
 export const OWN_BRAND_COLOR = '#f97316'
 export const COMPETITOR_COLORS = ['#2563eb', '#16a34a', '#9333ea', '#0891b2', '#dc2626', '#ca8a04', '#db2777', '#4f46e5', '#65a30d']
