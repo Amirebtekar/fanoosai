@@ -13,6 +13,14 @@ export function tehranDateKey(value: string | Date): string {
   return `${part('year')}-${part('month')}-${part('day')}`
 }
 
+export function tehranDayStart(day: Date): string {
+  return `${format(day, 'yyyy-MM-dd')}T00:00:00+03:30`
+}
+
+export function tehranDayEnd(day: Date): string {
+  return `${format(day, 'yyyy-MM-dd')}T23:59:59.999+03:30`
+}
+
 export function rankReportDays(startDate: Date, endDate: Date): string[] {
   const count = differenceInCalendarDays(endDate, startDate)
   return Array.from({ length: count + 1 }, (_, index) => format(addDays(startDate, index), 'yyyy-MM-dd')).reverse()

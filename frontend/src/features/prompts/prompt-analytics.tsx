@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { getProjectReferences, getProjectSearchedSites, getProjectSearchQueries, getPromptBrandTrends, getLatestRankings, getPromptHistory, listProjects, listPrompts, getErrorMessage, type ProjectRead, type ProjectReference, type ProjectSearchedSite, type ProjectSearchQuery, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
 import { BrandTrendChart } from './brand-trend-chart'
 import { RunMetadataDetails } from './run-metadata-details'
-import { buildRankTableRows, rankReportDays, tehranDateKey } from './rank-report-utils'
+import { buildRankTableRows, rankReportDays, tehranDateKey, tehranDayEnd, tehranDayStart } from './rank-report-utils'
 import { hasNextPage, SEARCH_PAGE_SIZE, siteActionText, siteHref, usageCountLabel } from './search-metadata'
 
 export function modelResponseText(responseText: string | null): string {
@@ -187,8 +187,8 @@ export function PromptAnalyticsPage() {
       const filtered = await getPromptBrandTrends(Number(promptId), {
         ai_model_id: Number(selectedModel),
         brand_ids: selectedBrand === 'all' ? undefined : [Number(selectedBrand)],
-        start_date: startDate ? `${format(startDate, 'yyyy-MM-dd')}T00:00:00` : undefined,
-        end_date: endDate ? `${format(endDate, 'yyyy-MM-dd')}T23:59:59` : undefined,
+        start_date: startDate ? tehranDayStart(startDate) : undefined,
+        end_date: endDate ? tehranDayEnd(endDate) : undefined,
       })
       setTrends(filtered)
       const ranked = await getLatestRankings(Number(promptId), { page: 1, ai_model_id: Number(selectedModel), brand_id: selectedBrand === 'all' ? undefined : Number(selectedBrand) })
@@ -218,11 +218,10 @@ export function PromptAnalyticsPage() {
   const loadPromptHistory = async () => {
     setHistoryLoading(true)
     try {
-      const date = historyDate ? format(historyDate, 'yyyy-MM-dd') : undefined
       const result = await getPromptHistory(Number(promptId), {
         ai_model_id: historyModel === 'all' ? undefined : Number(historyModel),
-        start_date: date ? `${date}T00:00:00` : undefined,
-        end_date: date ? `${date}T23:59:59` : undefined,
+        start_date: historyDate ? tehranDayStart(historyDate) : undefined,
+        end_date: historyDate ? tehranDayEnd(historyDate) : undefined,
       })
       setHistory(result.items)
     } catch (e) { toast.error(getErrorMessage(e, 'خطا در دریافت متن خام پرامپت')) }

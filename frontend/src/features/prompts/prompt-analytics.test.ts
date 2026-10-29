@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
 import { defaultTrendSelection, modelResponseText } from './prompt-analytics'
-import { buildRankTableRows, rankReportDays, tehranDateKey } from './rank-report-utils'
+import { buildRankTableRows, rankReportDays, tehranDateKey, tehranDayEnd, tehranDayStart } from './rank-report-utils'
+
+describe('tehran day bounds', () => {
+  it('sends the selected calendar day with the Tehran offset', () => {
+    const day = new Date(2026, 9, 30)
+    expect(tehranDayStart(day)).toBe('2026-10-30T00:00:00+03:30')
+    expect(tehranDayEnd(day)).toBe('2026-10-30T23:59:59.999+03:30')
+  })
+
+  it('includes a run made at 01:35 Tehran time in that day', () => {
+    const run = new Date('2026-10-29T22:05:00Z')
+    const day = new Date(2026, 9, 30)
+    expect(new Date(tehranDayStart(day)) <= run && run <= new Date(tehranDayEnd(day))).toBe(true)
+    expect(tehranDateKey(run)).toBe('2026-10-30')
+  })
+})
 
 describe('modelResponseText', () => {
   it('shows only the OpenAI response content', () => {

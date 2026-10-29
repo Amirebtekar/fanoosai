@@ -19,7 +19,14 @@ async def owned_project(project_id: int, session: AsyncSession, user: UserTable)
     if not await session.scalar(select(Project.id).join(OrganizationMember, OrganizationMember.organization_id == Project.organization_id).where(Project.id == project_id, OrganizationMember.user_id == user.id)):
         raise HTTPException(404, "پروژه یافت نشد")
 
+def as_tehran(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=ZoneInfo(settings.RUN_TIMEZONE))
+
+
 def filters(stmt, project_id, prompt_id=None, ai_model_id=None, start=None, end=None):
+    start, end = as_tehran(start), as_tehran(end)
     stmt = stmt.where(Prompt.project_id == project_id)
     if prompt_id is not None: stmt = stmt.where(AIRun.prompt_id == prompt_id)
     if ai_model_id is not None: stmt = stmt.where(AIRun.ai_model_id == ai_model_id)
@@ -709,6 +716,7 @@ async def latest_rankings(prompt_id: int, ai_model_id: int | None = None, brand_
                           session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     prompt = await owned_prompt(prompt_id, session, user)
     if not prompt: raise HTTPException(404, "Prompt یافت نشد")
+    start_date, end_date = as_tehran(start_date), as_tehran(end_date)
     ranked = select(
         Brand.name.label("brand"),
         Brand.domain,
@@ -782,6 +790,7 @@ async def prompt_brand_trends(
     user: UserTable = Depends(fastapi_users.current_user()),
 ):
     prompt = await owned_prompt(prompt_id, session, user)
+    start_date, end_date = as_tehran(start_date), as_tehran(end_date)
     if start_date and end_date and start_date > end_date:
         raise HTTPException(422, "start_date must be before end_date")
 
