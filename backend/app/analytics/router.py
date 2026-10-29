@@ -257,6 +257,136 @@ async def brand_rank_summary(
     return Page(items=items, page=page, page_size=page_size, total=total)
 
 
+RADAR_STRENGTH_WEIGHTS = {
+    "visibility": 0.35,
+    "rank_score": 0.25,
+    "first_place": 0.15,
+    "model_coverage": 0.15,
+    "prompt_coverage": 0.10,
+}
+RADAR_MIN_SAMPLE = 5
+RADAR_MIN_SAMPLE_SHARE = 0.05
+
+
+def rank_score(average_rank: float | None) -> float:
+    """Map an average rank to 0..100 (rank 1 -> 100, rank 10 or worse -> 0)."""
+    if average_rank is None:
+        return 0.0
+    return round(max(0.0, min(100.0, (10.0 - float(average_rank)) / 9.0 * 100.0)), 1)
+
+
+def build_competitor_radar(
+    rows,
+    *,
+    total_runs: int,
+    total_models: int,
+    total_prompts: int,
+    owned_domains: set[str],
+    owned_brand_ids: set[int],
+    limit: int,
+    days: int,
+) -> CompetitorRadar:
+    """Turn per-brand aggregates into radar axes and a combined strength score.
+
+    ``rows`` holds (brand_id, name, domain, appearances, avg_rank, first_places, models, prompts),
+    where ``appearances`` counts distinct answers the brand was in.
+    """
+    def pct(value: int, total: int) -> float:
+        return round(min(100.0, value / total * 100.0), 1) if total else 0.0
+
+    # Rank quality is only trustworthy with enough answers: a brand seen in 5 of 1000
+    # answers must not look as strong as one seen in 600. Scale the rank-based axes by
+    # min(1, appearances / min_sample), with min_sample = 5% of answers (at least 5).
+    min_sample = max(RADAR_MIN_SAMPLE, total_runs * RADAR_MIN_SAMPLE_SHARE)
+
+    brands = []
+    for brand_id, name, domain, appearances, avg_rank, first_places, models, prompts in rows:
+        appearances = int(appearances or 0)
+        average = float(avg_rank) if avg_rank is not None else None
+        confidence = min(1.0, appearances / min_sample) if min_sample else 0.0
+        axes = {
+            "visibility": pct(appearances, total_runs),
+            "rank_score": round(rank_score(average) * confidence, 1),
+            "first_place": round(pct(int(first_places or 0), appearances) * confidence, 1),
+            "model_coverage": pct(int(models or 0), total_models),
+            "prompt_coverage": pct(int(prompts or 0), total_prompts),
+        }
+        strength = round(sum(axes[key] * weight for key, weight in RADAR_STRENGTH_WEIGHTS.items()), 1)
+        is_owned = brand_id in owned_brand_ids or (domain or "").strip().casefold().rstrip(".") in owned_domains
+        brands.append(CompetitorRadarBrand(
+            brand_id=brand_id, brand=name, domain=domain, is_owned=is_owned, strength=strength, **axes,
+            appearances=appearances, average_rank=round(average, 2) if average is not None else None,
+            first_place_count=int(first_places or 0), models=int(models or 0), prompts=int(prompts or 0),
+        ))
+    brands.sort(key=lambda item: (-item.strength, -item.appearances, item.brand))
+    owned = [item for item in brands if item.is_owned]
+    top = [item for item in brands if not item.is_owned][: max(limit - len(owned[:1]), 0)]
+    selected = sorted(owned[:1] + top, key=lambda item: (-item.strength, -item.appearances, item.brand))
+    return CompetitorRadar(days=days, total_runs=total_runs, total_models=total_models, total_prompts=total_prompts, brands=selected)
+
+
+@router.get("/projects/{project_id}/competitor-radar", response_model=CompetitorRadar)
+async def competitor_radar(
+    project_id: int,
+    days: int = Query(30),
+    prompt_id: int | None = Query(None, gt=0),
+    limit: int = Query(6, ge=2, le=10),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    """Strongest brands of a project (always including the project's own brand) on five axes."""
+    await owned_project(project_id, session, user)
+    try:
+        start, end = model_performance_window(days)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    run_filter = [
+        Prompt.project_id == project_id,
+        AIRun.status == "success",
+        AIRun.created_at >= start,
+        AIRun.created_at < end,
+    ]
+    if prompt_id is not None:
+        run_filter.append(Prompt.id == prompt_id)
+
+    total_runs, total_models, total_prompts = (await session.execute(
+        select(func.count(AIRun.id), func.count(distinct(AIRun.ai_model_id)), func.count(distinct(AIRun.prompt_id)))
+        .select_from(AIRun).join(Prompt, Prompt.id == AIRun.prompt_id)
+        .where(*run_filter)
+    )).one()
+
+    rows = (await session.execute(
+        select(
+            Brand.id, Brand.name, Brand.domain,
+            func.count(distinct(RunBrand.ai_run_id)),
+            func.avg(RunBrand.rank),
+            func.count(distinct(RunBrand.ai_run_id)).filter(RunBrand.rank == 1),
+            func.count(distinct(AIRun.ai_model_id)),
+            func.count(distinct(AIRun.prompt_id)),
+        )
+        .select_from(RunBrand)
+        .join(AIRun, AIRun.id == RunBrand.ai_run_id)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(Brand, Brand.id == RunBrand.brand_id)
+        .where(*run_filter)
+        .group_by(Brand.id, Brand.name, Brand.domain)
+    )).all()
+
+    owned = (await session.execute(
+        select(ProjectBrand.brand_id, ProjectBrand.domain)
+        .where(ProjectBrand.project_id == project_id, ProjectBrand.kind == "owned")
+    )).all()
+    owned_brand_ids = {brand_id for brand_id, _ in owned if brand_id is not None}
+    owned_domains = {domain.strip().casefold().rstrip(".") for _, domain in owned if domain}
+
+    return build_competitor_radar(
+        rows,
+        total_runs=int(total_runs or 0), total_models=int(total_models or 0), total_prompts=int(total_prompts or 0),
+        owned_domains=owned_domains, owned_brand_ids=owned_brand_ids, limit=limit, days=days,
+    )
+
+
 @router.get("/projects/{project_id}/prompts", response_model=list[PromptAnalytics])
 async def prompt_analytics(project_id: int, session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     await owned_project(project_id, session, user)

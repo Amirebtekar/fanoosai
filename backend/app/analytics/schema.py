@@ -133,6 +133,32 @@ class BrandRankSummaryItem(BaseModel):
     observations: int
     total_runs: int = 0
 
+class CompetitorRadarBrand(BaseModel):
+    brand_id: int
+    brand: str
+    domain: str | None
+    is_owned: bool
+    strength: float
+    # Axes, each normalised to 0..100 (higher is stronger).
+    visibility: float
+    rank_score: float
+    first_place: float
+    model_coverage: float
+    prompt_coverage: float
+    # Raw values behind the axes, for tooltips and the table.
+    appearances: int
+    average_rank: float | None
+    first_place_count: int
+    models: int
+    prompts: int
+
+class CompetitorRadar(BaseModel):
+    days: int
+    total_runs: int
+    total_models: int
+    total_prompts: int
+    brands: list[CompetitorRadarBrand]
+
 class RankReportRow(BaseModel):
     prompt_id: int
     prompt: str

@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
+import { CompetitorRadarCard } from './competitor-radar'
 import { brandRankSummaryCsv, brandRankSummaryPrintHtml, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 export function DashboardPage() {
@@ -208,6 +209,7 @@ function BrandRankReport() {
   }
 
   return (
+    <>
     <Card className='brand-rank-report-card mt-6 border-border shadow-[6px_6px_0_var(--color-shadow)]'>
       <CardHeader className='flex flex-row flex-wrap items-start justify-between gap-3'>
         <div className='space-y-2'>
@@ -315,5 +317,7 @@ function BrandRankReport() {
         ) : <p className='py-6 text-center text-sm text-muted-text'>در این بازه برای پرامپت‌های انتخاب‌شده رتبه‌ای ثبت نشده است.</p>)}
       </CardContent>
     </Card>
+    {projectId && <CompetitorRadarCard key={projectId} projectId={projectId} prompts={prompts} />}
+    </>
   )
 }

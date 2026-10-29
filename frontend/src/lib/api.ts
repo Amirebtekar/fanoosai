@@ -118,6 +118,17 @@ export async function getAllBrandRankSummary(projectId: number, filters: { days:
     page += 1
   }
 }
+export interface CompetitorRadarBrand {
+  brand_id: number; brand: string; domain: string | null; is_owned: boolean; strength: number
+  visibility: number; rank_score: number; first_place: number; model_coverage: number; prompt_coverage: number
+  appearances: number; average_rank: number | null; first_place_count: number; models: number; prompts: number
+}
+export interface CompetitorRadar { days: number; total_runs: number; total_models: number; total_prompts: number; brands: CompetitorRadarBrand[] }
+export function getCompetitorRadar(projectId: number, params: { days: 7 | 30; prompt_id?: number; limit?: number }): Promise<CompetitorRadar> {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) })
+  return authRequest('GET', `/projects/${projectId}/competitor-radar?${query}`)
+}
 export function listAlerts(projectId: number): Promise<AlertItem[]> { return authRequest('GET', '/projects/' + projectId + '/alerts') }
 export function addAlertRule(projectId: number, kind: string, cooldown_hours = 24): Promise<unknown> { return authRequest('POST', `/projects/${projectId}/alert-rules?kind=${kind}&cooldown_hours=${cooldown_hours}`) }
 export function readAlert(projectId: number, alertId: number): Promise<void> { return authRequest('POST', `/projects/${projectId}/alerts/${alertId}/read`) }
