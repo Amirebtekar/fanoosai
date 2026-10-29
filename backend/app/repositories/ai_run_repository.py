@@ -21,6 +21,9 @@ class AIRunRepository:
         response_text: str | None = None,
         status: str = "failed",
         error_message: str | None = None,
+        error_provider: str | None = None,
+        error_status: int | None = None,
+        error_retryable: bool | None = None,
         provider_used: str | None = None,
         usage: dict | None = None,
     ) -> AIRun:
@@ -38,6 +41,9 @@ class AIRunRepository:
             cost_irt=(usage or {}).get("cost_irt"),
             extraction_status="pending" if status == "success" else "failed",
             error_message=error_message,
+            error_provider=error_provider,
+            error_status=error_status,
+            error_retryable=error_retryable,
             completed_at=now if status != "running" else None,
         )
         self.session.add(run)
@@ -50,7 +56,7 @@ class AIRunRepository:
 
     async def update_extraction(self, run: AIRun, status: str, error: str | None = None) -> None:
         run.extraction_status = status
-        run.error_message = error
+        run.extraction_error = error
         run.processed_at = datetime.now(timezone.utc)
         await self.session.commit()
 
@@ -147,6 +153,20 @@ class AIRunRepository:
             )
         )
         return dict(rows.all())
+
+    async def get_failed_extractions(self, cutoff: datetime) -> list[AIRun]:
+        """Return runs with status='success' and extraction_status='failed' older than cutoff."""
+        result = await self.session.execute(
+            select(AIRun)
+            .where(
+                AIRun.status == "success",
+                AIRun.extraction_status == "failed",
+                AIRun.response_text.isnot(None),
+                AIRun.created_at < cutoff,
+            )
+            .order_by(AIRun.created_at)
+        )
+        return list(result.scalars().all())
 
     async def get_by_prompt(self, prompt_id: int) -> list[AIRun]:
         stmt = (

@@ -16,6 +16,7 @@ class PromptRunJob:
     source: str = "scheduled"
     run_attempt: int = 1
     ai_run_id: int | None = None
+    models: tuple[str, ...] = ()
 
 
 class PromptRunQueue:

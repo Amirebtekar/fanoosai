@@ -3,6 +3,7 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -15,6 +16,8 @@ from app.repositories.ai_run_repository import AIRunRepository
 from app.services.prompt_service import PromptService
 from app.services.ai_service import AIService
 from app.services.ai_run_service import AIRunService
+from app.services.daily_model_run_service import DailyModelRunService
+from app.repositories.daily_model_run_repository import DailyModelRunRepository
 from app.services.brand_extraction_service import BrandExtractionService
 from app.services.brand_persistence_service import BrandPersistenceService
 from app.infrastructure.redis_client import get_redis
@@ -226,37 +229,26 @@ async def remove_prompt_model(
             detail=str(e),
         )
 
-async def _execute_prompt_run(prompt_id: int, ai_model_id: int | None) -> None:
+async def _execute_prompt_run(prompt_id: int, mode: str = "failed", ai_model_id: int | None = None) -> None:
     try:
         async with async_session_maker() as session:
             ai_service = AIService()
-            run_service = AIRunService(
-                AIRunRepository(session),
-                ai_service,
+            dmr_repo = DailyModelRunRepository(session)
+            run_repo = AIRunRepository(session)
+            service = DailyModelRunService(
+                dmr_repo, run_repo, ai_service,
                 BrandExtractionService(ai_service, session),
                 BrandPersistenceService(session),
-                PromptRunQueue(get_redis()),
-                SystemSettingsRepository(session),
             )
             prompt = await PromptRepository(session).get_by_id(prompt_id)
             if prompt is None or not prompt.is_active:
                 return
-            if ai_model_id is not None:
-                await run_service.run_prompt_model(prompt, ai_model_id, source="manual")
-            else:
-                global _manual_last_request_at
-                for link in prompt.models:
-                    async with _manual_run_lock:
-                        wait = settings.WORKER_REQUEST_DELAY_SECONDS - (asyncio.get_running_loop().time() - _manual_last_request_at)
-                        if wait > 0:
-                            await asyncio.sleep(wait)
-                        _manual_last_request_at = asyncio.get_running_loop().time()
-                        try:
-                            await run_service.run_prompt_model(prompt, link.model.id, source="manual")
-                        except Exception:
-                            logger.exception("prompt_manual_model_failed", extra={"event_data": {"prompt_id": prompt.id, "ai_model_id": link.model.id}})
+            from datetime import date as _date
+            from zoneinfo import ZoneInfo
+            run_date = _date.today()
+            await service.run_manual(prompt, run_date=run_date, mode=mode)
     except Exception:
-        logger.exception("prompt_run_background_failed", extra={"event_data": {"prompt_id": prompt_id, "ai_model_id": ai_model_id}})
+        logger.exception("prompt_run_background_failed", extra={"event_data": {"prompt_id": prompt_id, "mode": mode}})
 
 
 def _queued_results(count: int) -> list[AIRunResult]:
@@ -273,11 +265,52 @@ def _queued_results(count: int) -> list[AIRunResult]:
     ]
 
 
+class RunModeBody(BaseModel):
+    mode: str = "failed"
+
+
+class RetryExtractionBody(BaseModel):
+    run_ids: list[int] | None = None
+
+
+@router.post("/{prompt_id}/retry-extraction")
+async def retry_extraction(
+    project_id: int,
+    prompt_id: int,
+    body: RetryExtractionBody | None = None,
+    prompt_service: PromptService = Depends(get_prompt_service),
+    current_user: UserTable = Depends(get_current_user),
+) -> dict:
+    try:
+        await require_project_writer(project_id, current_user.id, prompt_service.prompt_repo.session)
+        project_repo = ProjectRepository(prompt_service.prompt_repo.session)
+        project = await project_repo.get_by_id(project_id, current_user.id)
+        if not project:
+            raise ValueError("پروژه یافت نشد")
+
+        prompt = await prompt_service.get_prompt(prompt_id)
+        if prompt.project_id != project_id:
+            raise ValueError("Prompt متعلق به این پروژه نیست")
+
+        async with async_session_maker() as session:
+            ai_service = AIService()
+            run_service = AIRunService(
+                AIRunRepository(session), ai_service,
+                BrandExtractionService(ai_service, session),
+                BrandPersistenceService(session),
+            )
+            results = await run_service.retry_failed_extractions(older_than_hours=0)
+            return {"retried": len(results), "results": results}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
 @router.post("/{prompt_id}/run", response_model=List[AIRunResult])
 async def run_prompt(
     project_id: int,
     prompt_id: int,
     background_tasks: BackgroundTasks,
+    body: RunModeBody | None = None,
     ai_model_id: int | None = Query(None, gt=0),
     prompt_service: PromptService = Depends(get_prompt_service),
     current_user: UserTable = Depends(get_current_user),
@@ -297,10 +330,8 @@ async def run_prompt(
         if not prompt.models:
             raise ValueError("هیچ مدل AI برای این Prompt انتخاب نشده است")
 
-        if ai_model_id is not None:
-            background_tasks.add_task(_execute_prompt_run, prompt_id, ai_model_id)
-            return _queued_results(1)
-        background_tasks.add_task(_execute_prompt_run, prompt_id, None)
+        mode = body.mode if body and body.mode in ("failed", "all") else "failed"
+        background_tasks.add_task(_execute_prompt_run, prompt_id, mode)
         return _queued_results(len(prompt.models))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

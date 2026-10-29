@@ -3,6 +3,10 @@ from pathlib import Path
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+import logging
+
+_config_logger = logging.getLogger(__name__)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -21,6 +25,9 @@ class Settings(BaseSettings):
     AVALAI_BASE_URL: str = "https://api.avalai.ir/v1"
     AVALAI_API_KEY: str = ""
     AVALAI_MODEL: str = ""
+    AI_MAX_RETRIES: int = 2
+    AI_RETRY_BASE_DELAY: float = 0.5
+    AI_TOTAL_DEADLINE_SECONDS: float = 0.0
     BRAND_EXTRACTION_MODEL: str = "openai/gpt-4.1-mini"
     RUN_TIMEZONE: str = "Asia/Tehran"
     AUTOMATIC_RUN_INTERVAL_SECONDS: int = 60
@@ -30,6 +37,9 @@ class Settings(BaseSettings):
     REDIS_JOB_MAX_RETRIES: int = 3
     WORKER_REQUEST_DELAY_SECONDS: int = 60
     RUN_CLAIM_LEASE_SECONDS: int = 600
+    DAILY_MAX_ATTEMPTS: int = 4
+    DAILY_RETRY_INTERVAL_MINUTES: int = 15
+    DAILY_RETRY_POLL_MINUTES: int = 5
     RUN_RETENTION_DAYS: int = 365
     TREND_MAX_POINTS_PER_SERIES: int = 365
     ANALYTICS_PROMPT_LIMIT: int = 1000
@@ -74,3 +84,19 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def resolve_ai_total_deadline(s) -> float:
+    value = s.AI_TOTAL_DEADLINE_SECONDS
+    lease = s.RUN_CLAIM_LEASE_SECONDS
+    if value == 0:
+        return lease * 0.5
+    if value < 10:
+        raise ValueError(
+            f"AI_TOTAL_DEADLINE_SECONDS must be 0 (auto) or >= 10, got {value}"
+        )
+    if value >= lease * 0.8:
+        _config_logger.warning(
+            "AI_TOTAL_DEADLINE_SECONDS=%s risks lease expiry (lease=%s)", value, lease
+        )
+    return value

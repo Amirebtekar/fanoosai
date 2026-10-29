@@ -11,8 +11,9 @@ from app.infrastructure.redis_client import get_redis
 from app.infrastructure.run_queue import PromptRunJob, PromptRunQueue
 from app.observability import QUEUE_JOBS
 from app.repositories.ai_run_repository import AIRunRepository
+from app.repositories.daily_model_run_repository import DailyModelRunRepository
 from app.repositories.system_settings_repository import SystemSettingsRepository
-from app.services.ai_run_service import AIRunService
+from app.services.daily_model_run_service import DailyModelRunService
 from app.services.ai_service import AIService
 from app.services.brand_extraction_service import BrandExtractionService
 from app.services.brand_persistence_service import BrandPersistenceService
@@ -28,20 +29,14 @@ async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
     global _last_request_at
     async with async_session_maker() as session:
         ai_service = AIService()
-        service = AIRunService(
-            AIRunRepository(session), ai_service, BrandExtractionService(ai_service, session),
-            BrandPersistenceService(session), queue, SystemSettingsRepository(session),
+        dmr_repo = DailyModelRunRepository(session)
+        run_repo = AIRunRepository(session)
+        service = DailyModelRunService(
+            dmr_repo, run_repo, ai_service,
+            BrandExtractionService(ai_service, session),
+            BrandPersistenceService(session),
         )
-        if job.source == "extraction_retry":
-            if job.ai_run_id is not None:
-                async with _request_lock:
-                    wait = settings.WORKER_REQUEST_DELAY_SECONDS - (asyncio.get_running_loop().time() - _last_request_at)
-                    if wait > 0:
-                        await asyncio.sleep(wait)
-                    _last_request_at = asyncio.get_running_loop().time()
-                    await service.retry_extraction(job.ai_run_id, job.run_attempt)
-            await queue.ack(entry_id)
-            return
+
         prompt = (await session.execute(
             select(Prompt)
             .options(selectinload(Prompt.models).selectinload(PromptModel.model))
@@ -50,15 +45,22 @@ async def process_job(queue: PromptRunQueue, entry_id: str, job) -> None:
         if prompt is None:
             await queue.ack(entry_id)
             return
-        run_at = datetime.combine(
-            date.fromisoformat(job.run_date), time(hour=9), tzinfo=ZoneInfo(settings.RUN_TIMEZONE)
-        )
+
+        run_date = date.fromisoformat(job.run_date)
+
         async with _request_lock:
             wait = settings.WORKER_REQUEST_DELAY_SECONDS - (asyncio.get_running_loop().time() - _last_request_at)
             if wait > 0:
                 await asyncio.sleep(wait)
             _last_request_at = asyncio.get_running_loop().time()
-            await service.run_prompt_model(prompt, job.ai_model_id, now=run_at, source=job.source, run_attempt=job.run_attempt)
+
+        if job.models:
+            target_models = list(job.models)
+        else:
+            target_models = [link.model.model_key for link in prompt.models if link.model.is_active]
+
+        await service.run_daily(prompt, run_date=run_date, model_filter=target_models)
+
         await queue.ack(entry_id)
 
 
@@ -73,15 +75,7 @@ async def main() -> None:
                     await process_job(queue, entry_id, job)
                     QUEUE_JOBS.labels("success").inc()
                 except Exception:
-                    if job.attempts < settings.REDIS_JOB_MAX_RETRIES:
-                        retry_job = replace(job, attempts=job.attempts + 1)
-                        if job.source == "scheduled":
-                            await queue.enqueue_after_claim_lease(retry_job)
-                        else:
-                            await queue.enqueue_retry(retry_job)
-                        QUEUE_JOBS.labels("retry").inc()
-                    else:
-                        QUEUE_JOBS.labels("failed").inc()
+                    QUEUE_JOBS.labels("failed").inc()
                     await queue.ack(entry_id)
                     logger.exception("prompt_job_failed", extra={"event_data": {"entry_id": entry_id}})
     finally:

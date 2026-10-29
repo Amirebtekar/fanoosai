@@ -51,6 +51,10 @@ class AIRun(Base):
     extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    error_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_retryable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -77,6 +81,34 @@ class DailyPromptRun(Base):
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="claimed")
     claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class DailyModelRun(Base):
+    """Per-model daily execution state: pending / retrying / success / exhausted."""
+
+    __tablename__ = "daily_model_runs"
+    __table_args__ = (
+        UniqueConstraint("prompt_id", "model", "run_date", name="uq_daily_model_run"),
+        Index("ix_daily_model_runs_date", "run_date"),
+        Index("ix_daily_model_runs_prompt_date", "prompt_id", "run_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    prompt_id: Mapped[int] = mapped_column(Integer, ForeignKey("prompts.id"), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    run_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_error_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_error_retryable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    success_run_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("ai_runs.id"), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class SystemSetting(Base):
