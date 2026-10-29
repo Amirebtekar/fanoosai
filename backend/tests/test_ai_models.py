@@ -49,8 +49,11 @@ async def test_schema_serializes():
 
 
 async def test_gateway_base_url_configured():
-    assert settings.AI_GATEWAY_BASE_URL.endswith("/api"), "AI Gateway base URL must point to gateway"
-    print(f"PASS: AI_GATEWAY_BASE_URL = {settings.AI_GATEWAY_BASE_URL}")
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(settings.AI_GATEWAY_BASE_URL)
+    assert parsed.scheme == "https" and parsed.netloc, "AI Gateway base URL must be an absolute https URL"
+    assert not settings.AI_GATEWAY_BASE_URL.rstrip("/").endswith("/v1"), "base URL must not include /v1; it is appended per request"
 
 async def test_openai_models_payload_normalizes():
     payload = {"data": [{"id": "openai/gpt-5", "owned_by": "OpenAI"}]}

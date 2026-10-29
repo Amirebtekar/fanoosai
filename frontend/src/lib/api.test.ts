@@ -1,5 +1,30 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ApiError, getAllBrandRankSummary, getErrorMessage } from './api'
+import { adminSearchQueriesExportUrl, ApiError, getAllBrandRankSummary, getErrorMessage, getProjectSearchedSites, getProjectSearchQueries, listAdminSearchQueries } from './api'
+
+describe('search query endpoints', () => {
+  it('builds project and admin URLs with only the given filters', async () => {
+    const originalFetch = globalThis.fetch
+    const requestedUrls: string[] = []
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return { ok: true, status: 200, text: async () => JSON.stringify({ items: [], page: 1, page_size: 50, total: 0 }) } as Response
+    }) as typeof fetch
+    try {
+      await getProjectSearchQueries(10, { prompt_id: 33, page: 2 })
+      await getProjectSearchedSites(10, { prompt_id: 33, ai_model_id: undefined })
+      await listAdminSearchQueries({ search: '', page: 1, page_size: 50 })
+      await listAdminSearchQueries({ search: 'vps هاست', project_id: 4 })
+      expect(requestedUrls[0]).toMatch(/\/projects\/10\/search-queries\?prompt_id=33&page=2$/)
+      expect(requestedUrls[1]).toMatch(/\/projects\/10\/searched-sites\?prompt_id=33$/)
+      expect(requestedUrls[2]).toMatch(/\/admin\/search-queries\?page=1&page_size=50$/)
+      expect(new URL(requestedUrls[3], 'http://test.local').searchParams.get('search')).toBe('vps هاست')
+      expect(adminSearchQueriesExportUrl()).toMatch(/\/admin\/search-queries\/export$/)
+      expect(adminSearchQueriesExportUrl({ search: 'a b' })).toMatch(/\/admin\/search-queries\/export\?search=a\+b$/)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
 
 describe('getAllBrandRankSummary', () => {
   it('loads every page using the selected project, prompt, brand and period filters', async () => {

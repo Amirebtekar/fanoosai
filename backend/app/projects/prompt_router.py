@@ -16,7 +16,7 @@ from app.repositories.ai_run_repository import AIRunRepository
 from app.services.prompt_service import PromptService
 from app.services.ai_service import AIService
 from app.services.ai_run_service import AIRunService
-from app.services.daily_model_run_service import DailyModelRunService
+from app.services.daily_model_run_service import DailyModelRunService, tehran_date
 from app.repositories.daily_model_run_repository import DailyModelRunRepository
 from app.services.brand_extraction_service import BrandExtractionService
 from app.services.brand_persistence_service import BrandPersistenceService
@@ -229,7 +229,9 @@ async def remove_prompt_model(
             detail=str(e),
         )
 
-async def _execute_prompt_run(prompt_id: int, mode: str = "failed", ai_model_id: int | None = None) -> None:
+async def _execute_prompt_run(prompt_id: int, target: str | int = "failed") -> None:
+    ai_model_id = target if isinstance(target, int) else None
+    mode = "failed" if ai_model_id is not None else target
     try:
         async with async_session_maker() as session:
             ai_service = AIService()
@@ -243,10 +245,12 @@ async def _execute_prompt_run(prompt_id: int, mode: str = "failed", ai_model_id:
             prompt = await PromptRepository(session).get_by_id(prompt_id)
             if prompt is None or not prompt.is_active:
                 return
-            from datetime import date as _date
-            from zoneinfo import ZoneInfo
-            run_date = _date.today()
-            await service.run_manual(prompt, run_date=run_date, mode=mode)
+            model_keys = None
+            if ai_model_id is not None:
+                model_keys = [link.model.model_key for link in prompt.models if link.model.id == ai_model_id]
+                if not model_keys:
+                    return
+            await service.run_manual(prompt, run_date=tehran_date(), mode=mode, model_keys=model_keys)
     except Exception:
         logger.exception("prompt_run_background_failed", extra={"event_data": {"prompt_id": prompt_id, "mode": mode}})
 
@@ -336,6 +340,9 @@ async def run_prompt(
         if not prompt.models:
             raise ValueError("هیچ مدل AI برای این Prompt انتخاب نشده است")
 
+        if ai_model_id is not None:
+            background_tasks.add_task(_execute_prompt_run, prompt_id, ai_model_id)
+            return _queued_results(1)
         mode = body.mode if body and body.mode in ("failed", "all") else "failed"
         background_tasks.add_task(_execute_prompt_run, prompt_id, mode)
         return _queued_results(len(prompt.models))

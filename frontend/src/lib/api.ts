@@ -168,7 +168,27 @@ export interface PromptHistoryItem {
   status: string
   extraction_status: string
   brands_count: number
+  prompt_tokens?: number | null
+  completion_tokens?: number | null
+  total_tokens?: number | null
+  reasoning_tokens?: number | null
+  cached_tokens?: number | null
+  cost_irt?: number | null
+  cost_usd?: number | null
+  web_search_count?: number | null
+  web_search_queries?: string[] | null
+  web_search_actions?: WebSearchAction[] | null
+  citations?: RunCitation[] | null
 }
+
+export interface WebSearchAction { type: string; query?: string; queries?: string[]; url?: string; pattern?: string; sources?: string[] }
+export interface RunCitation { url: string; title?: string | null }
+export interface CostSummaryModel { ai_model: string; runs: number; cost_irt: number; total_tokens: number; web_search_count: number }
+export interface CostSummary {
+  days: number; total_cost_irt: number; total_cost_usd: number; runs_with_cost: number; total_runs: number
+  total_tokens: number; web_search_count: number; models: CostSummaryModel[]
+}
+export function getCostSummary(projectId: number, days: 7 | 30): Promise<CostSummary> { return authRequest('GET', `/projects/${projectId}/cost-summary?days=${days}`) }
 
 export interface PromptHistoryPage { items: PromptHistoryItem[]; page: number; page_size: number; total: number }
 
@@ -195,6 +215,47 @@ export function getProjectReferences(projectId: number, params: { prompt_id?: nu
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) })
   const suffix = query.toString() ? '?' + query.toString() : ''
   return authRequest('GET', '/projects/' + projectId + '/references' + suffix)
+}
+
+export interface ProjectSearchQuery {
+  query: string
+  prompt_id: number
+  prompt: string
+  ai_model_id: number
+  ai_model: string
+  run_date: string
+  count: number
+}
+
+export type SearchedSiteAction = 'open_page' | 'find_in_page'
+
+export interface ProjectSearchedSite {
+  url: string
+  domain: string
+  action_type: SearchedSiteAction
+  pattern: string | null
+  prompt_id: number
+  prompt: string
+  ai_model_id: number
+  ai_model: string
+  run_date: string
+  count: number
+}
+
+type ProjectSearchParams = { prompt_id?: number; ai_model_id?: number; page?: number; page_size?: number }
+
+function searchSuffix(params: Record<string, string | number | undefined>): string {
+  const query = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)) })
+  return query.toString() ? '?' + query.toString() : ''
+}
+
+export function getProjectSearchQueries(projectId: number, params: ProjectSearchParams = {}): Promise<Page<ProjectSearchQuery>> {
+  return authRequest('GET', '/projects/' + projectId + '/search-queries' + searchSuffix(params))
+}
+
+export function getProjectSearchedSites(projectId: number, params: ProjectSearchParams = {}): Promise<Page<ProjectSearchedSite>> {
+  return authRequest('GET', '/projects/' + projectId + '/searched-sites' + searchSuffix(params))
 }
 
 export interface RankReportRow {
@@ -264,4 +325,24 @@ export function listAdminReferences(params: { project_id?: number; ai_model_id?:
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)) })
   const suffix = query.toString() ? '?' + query.toString() : ''
   return authRequest('GET', '/admin/references' + suffix)
+}
+
+export interface AdminSearchQuery { query: string; count: number; project_id: number; project_name: string; prompt_id: number; prompt: string; ai_model_id: number; ai_model: string; run_date: string }
+export interface AdminSearchQueriesPage { items: AdminSearchQuery[]; page: number; page_size: number; total: number }
+type AdminSearchQueryParams = { project_id?: number; ai_model_id?: number; search?: string }
+export function listAdminSearchQueries(params: AdminSearchQueryParams & { page?: number; page_size?: number } = {}): Promise<AdminSearchQueriesPage> {
+  return authRequest('GET', '/admin/search-queries' + searchSuffix(params))
+}
+export function adminSearchQueriesExportUrl(params: AdminSearchQueryParams = {}): string {
+  return `${API_BASE}/admin/search-queries/export${searchSuffix(params)}`
+}
+export async function downloadAdminSearchQueriesCsv(params: AdminSearchQueryParams = {}): Promise<void> {
+  const res = await fetch(adminSearchQueriesExportUrl(params), { credentials: 'include', headers: { Accept: 'text/csv' } })
+  if (!res.ok) { let detail: unknown; try { detail = await res.json() } catch { detail = res.statusText }; throw new ApiError(res.status, detail) }
+  const url = URL.createObjectURL(await res.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'search-queries.csv'
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }

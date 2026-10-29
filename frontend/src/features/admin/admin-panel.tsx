@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getAdminCosts, getAdminOverview, getErrorMessage, getExtractionSettings, listAdminBrands, listAdminModels, listAdminPrompts, listAdminReferences, mergeAdminBrands, previewAdminBrandMerge, resetExtractionSettings, saveModelSelection, setAdminPromptActive, syncGatewayModels, updateExtractionSettings, type AdminBrand, type AdminCostItem, type AdminOverview, type AdminPromptRead, type AdminReference, type AIModelRead, type BrandMergePreview, type ExtractionSettings, type GatewayModel } from '@/lib/api'
+import { downloadAdminSearchQueriesCsv, getAdminCosts, getAdminOverview, getErrorMessage, getExtractionSettings, listAdminBrands, listAdminModels, listAdminPrompts, listAdminReferences, listAdminSearchQueries, mergeAdminBrands, previewAdminBrandMerge, resetExtractionSettings, saveModelSelection, setAdminPromptActive, syncGatewayModels, updateExtractionSettings, type AdminBrand, type AdminCostItem, type AdminOverview, type AdminPromptRead, type AdminReference, type AdminSearchQuery, type AIModelRead, type BrandMergePreview, type ExtractionSettings, type GatewayModel } from '@/lib/api'
+import { usageCountLabel } from '@/features/prompts/search-metadata'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -41,6 +42,7 @@ function AdminPanel() {
           <TabsTrigger value="prompts" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">پرامپت‌ها</TabsTrigger>
           <TabsTrigger value="extraction" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">تنظیمات استخراج</TabsTrigger>
           <TabsTrigger value="references" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">رفرنس‌ها</TabsTrigger>
+          <TabsTrigger value="search-queries" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">کوئری‌ها</TabsTrigger>
           <TabsTrigger value="brands" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">برندها</TabsTrigger>
           <TabsTrigger value="costs" className="rounded-none border-2 border-transparent font-bold data-[state=active]:border-border">هزینه‌ها</TabsTrigger>
         </TabsList>
@@ -48,6 +50,7 @@ function AdminPanel() {
         <TabsContent value="prompts"><PromptsTab onLoaded={loadOverview} /></TabsContent>
         <TabsContent value="extraction"><ExtractionTab /></TabsContent>
         <TabsContent value="references"><ReferencesTab /></TabsContent>
+        <TabsContent value="search-queries"><SearchQueriesTab /></TabsContent>
         <TabsContent value="brands"><BrandsTab /></TabsContent>
         <TabsContent value="costs"><CostsTab /></TabsContent>
       </Tabs>
@@ -530,7 +533,7 @@ function ReferencesTab() {
     }
   }, [query, page])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -581,6 +584,113 @@ function ReferencesTab() {
                   <TableCell className="max-w-72 truncate text-sm text-muted-text" title={ref.prompt}>{ref.prompt}</TableCell>
                   <TableCell>{ref.ai_model}</TableCell>
                   <TableCell className="text-xs">{new Date(ref.run_date).toLocaleDateString('fa-IR')}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between text-sm font-bold">
+        <span>مجموع: {total.toLocaleString('fa-IR')}</span>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="border-border">قبلی</Button>
+          <span>صفحه {page.toLocaleString('fa-IR')} از {totalPages.toLocaleString('fa-IR')}</span>
+          <Button variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} className="border-border">بعدی</Button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function SearchQueriesTab() {
+  const [items, setItems] = useState<AdminSearchQuery[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const pageSize = 50
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const result = await listAdminSearchQueries({ search: query, page, page_size: pageSize })
+      setItems(result.items)
+      setTotal(result.total)
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'خطا در دریافت کوئری‌ها'))
+    } finally {
+      setLoading(false)
+    }
+  }, [query, page])
+
+  useEffect(() => { void Promise.resolve().then(load) }, [load])
+
+  const exportCsv = async () => {
+    setExporting(true)
+    try {
+      await downloadAdminSearchQueriesCsv({ search: query })
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'خطا در دریافت فایل CSV'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="text-sm font-medium text-muted-text">عبارت‌هایی که مدل‌ها هنگام جستجوی وب استفاده کرده‌اند؛ فقط اجراهای جدید کوئری ذخیره می‌کنند.</p>
+        <div className="flex flex-wrap gap-2">
+          <form
+            className="flex gap-2"
+            onSubmit={e => { e.preventDefault(); setPage(1); setQuery(search.trim()) }}
+          >
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="جستجو در متن کوئری..."
+              dir="auto"
+              className="w-64 rounded-none border-2 border-border bg-card p-2 text-sm outline-none"
+              aria-label="جستجو در متن کوئری"
+            />
+            <Button type="submit" className="border-border bg-accent-neon text-primary-foreground shadow-[4px_4px_0_var(--color-shadow)] hover:bg-accent-neon/90 font-bold">جستجو</Button>
+          </form>
+          <Button type="button" variant="outline" disabled={exporting} onClick={() => void exportCsv()} className="border-border font-bold">{exporting ? 'در حال آماده‌سازی...' : 'دریافت CSV'}</Button>
+        </div>
+      </div>
+
+      <div className="border-2 border-border bg-card shadow-[6px_6px_0_var(--color-shadow)]">
+        {loading ? (
+          <div className="space-y-3 p-6">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 bg-accent" />)}</div>
+        ) : !items.length ? (
+          <p className="p-6 text-sm font-medium text-muted-text">هنوز کوئری جستجویی ثبت نشده است.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>کوئری</TableHead>
+                <TableHead>تعداد</TableHead>
+                <TableHead>پروژه</TableHead>
+                <TableHead>پرامپت</TableHead>
+                <TableHead>مدل</TableHead>
+                <TableHead>آخرین اجرا</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map(item => (
+                <TableRow key={`${item.prompt_id}-${item.ai_model_id}-${item.query}`}>
+                  <TableCell className="max-w-80 whitespace-normal break-words text-sm font-medium" dir="auto">{item.query}</TableCell>
+                  <TableCell>{usageCountLabel(item.count) ?? item.count.toLocaleString('fa-IR')}</TableCell>
+                  <TableCell className="font-bold">{item.project_name}</TableCell>
+                  <TableCell className="max-w-72 truncate text-sm text-muted-text" title={item.prompt}>{item.prompt}</TableCell>
+                  <TableCell>{item.ai_model}</TableCell>
+                  <TableCell className="text-xs">{new Date(item.run_date).toLocaleDateString('fa-IR')}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

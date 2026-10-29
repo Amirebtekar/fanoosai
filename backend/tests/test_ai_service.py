@@ -6,6 +6,17 @@ import pytest
 
 import app.services.ai_service as ai_service_module
 from app.services.ai_service import AIService
+from app.services.errors import AIProviderError
+
+RETRY_SETTINGS = {
+    "AI_TOTAL_DEADLINE_SECONDS": 60,
+    "RUN_CLAIM_LEASE_SECONDS": 600,
+    "AI_MAX_RETRIES": 0,
+    "AI_RETRY_BASE_DELAY": 0,
+}
+RESPONSES_BODY = json.dumps({
+    "output": [{"type": "message", "content": [{"type": "output_text", "text": "fresh answer"}]}],
+})
 
 
 @pytest.mark.asyncio
@@ -67,7 +78,8 @@ def test_normalizes_claude_response_to_openai_choices_shape():
 
 
 def test_leaves_non_gemini_response_unchanged():
-    assert AIService._normalize_response('{"choices":[]}') == '{"choices":[]}'
+    with pytest.raises(AIProviderError):
+        AIService._normalize_response('{"choices":[]}')
 
 
 def test_extracts_sources_from_chat_content():
@@ -84,7 +96,7 @@ async def test_user_prompts_use_responses_web_search(monkeypatch):
         status = 200
 
         async def text(self):
-            return '{"output":[]}'
+            return RESPONSES_BODY
 
         async def __aenter__(self):
             return self
@@ -93,7 +105,7 @@ async def test_user_prompts_use_responses_web_search(monkeypatch):
             return None
 
     class Session:
-        def post(self, url, json, headers=None):
+        def post(self, url, json, headers=None, **_):
             self.url = url
             self.payload = json
             return Response()
@@ -111,6 +123,7 @@ async def test_user_prompts_use_responses_web_search(monkeypatch):
         AVALAI_BASE_URL="https://api.avalai.ir/v1",
         AVALAI_API_KEY="fallback-key",
         AVALAI_MODEL="",
+        **RETRY_SETTINGS,
     ))
 
     _, provider_used = await AIService().run_prompt_with_provider("google/gemini", "latest news")
@@ -250,7 +263,7 @@ async def test_falls_back_to_avalai_after_one_primary_attempt(monkeypatch):
         def __init__(self):
             self.calls = []
 
-        def post(self, url, json, headers=None):
+        def post(self, url, json, headers=None, **_):
             self.calls.append((url, json, headers))
             if "avalai.ir" in url:
                 body = '{"choices":[{"message":{"content":"fallback"}}]}'
@@ -270,6 +283,7 @@ async def test_falls_back_to_avalai_after_one_primary_attempt(monkeypatch):
         AVALAI_BASE_URL="https://api.avalai.ir/v1",
         AVALAI_API_KEY="fallback-key",
         AVALAI_MODEL="",
+        **RETRY_SETTINGS,
     ))
 
     response, provider_used = await AIService().run_prompt_with_provider(
@@ -295,7 +309,7 @@ async def test_skips_primary_and_calls_avalai_once_when_gateway_disabled(monkeyp
         status = 200
 
         async def text(self):
-            return '{"output":[]}'
+            return RESPONSES_BODY
 
         async def __aenter__(self):
             return self
@@ -307,7 +321,7 @@ async def test_skips_primary_and_calls_avalai_once_when_gateway_disabled(monkeyp
         def __init__(self):
             self.calls = []
 
-        def post(self, url, json, headers=None):
+        def post(self, url, json, headers=None, **_):
             self.calls.append((url, json, headers))
             return Response()
 
@@ -324,6 +338,7 @@ async def test_skips_primary_and_calls_avalai_once_when_gateway_disabled(monkeyp
         AVALAI_BASE_URL="https://api.avalai.ir/v1",
         AVALAI_API_KEY="fallback-key",
         AVALAI_MODEL="",
+        **RETRY_SETTINGS,
     ))
 
     _, provider_used = await AIService().run_prompt_with_provider("google/gemini", "latest news")
@@ -369,7 +384,7 @@ async def test_falls_back_to_router_with_configured_model(monkeypatch):
         def __init__(self):
             self.calls = []
 
-        def post(self, url, json, headers=None):
+        def post(self, url, json, headers=None, **_):
             self.calls.append((url, json, headers))
             return Response()
 
@@ -386,6 +401,7 @@ async def test_falls_back_to_router_with_configured_model(monkeypatch):
         AVALAI_BASE_URL="http://router.example/v1",
         AVALAI_API_KEY="router-key",
         AVALAI_MODEL="glm",
+        **RETRY_SETTINGS,
     ))
 
     response, provider_used = await AIService().run_prompt_with_provider(

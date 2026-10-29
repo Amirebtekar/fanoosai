@@ -1,6 +1,7 @@
 from typing import AsyncGenerator
 from datetime import date, datetime
 from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Date, UniqueConstraint, CheckConstraint, func, Text, Float, Index
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from fastapi_users.db import SQLAlchemyBaseUserTable, SQLAlchemyUserDatabase
 from app.database.connection import Base, async_session_maker
@@ -48,6 +49,13 @@ class AIRun(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_irt: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cached_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    web_search_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    web_search_queries: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    web_search_actions: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    citations: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

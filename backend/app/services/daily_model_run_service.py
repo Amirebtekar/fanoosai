@@ -58,12 +58,14 @@ class DailyModelRunService:
             runnable = [r for r in runnable if r.model in model_filter]
         return await self._execute_models(prompt, runnable, run_date, mode="auto")
 
-    async def run_manual(self, prompt: Prompt, *, run_date: date, mode: str = "failed", now: datetime | None = None) -> list[dict]:
-        """Manual rerun. mode='failed' resets retrying/exhausted; mode='all' resets all."""
-        model_keys = [link.model.model_key for link in prompt.models if getattr(link.model, "is_active", True)]
-        await self.dmr_repo.ensure_rows(prompt.id, model_keys, run_date)
-        await self.dmr_repo.reset_for_manual(prompt.id, model_keys, run_date, mode=mode)
+    async def run_manual(self, prompt: Prompt, *, run_date: date, mode: str = "failed", now: datetime | None = None, model_keys: list[str] | None = None) -> list[dict]:
+        """Manual rerun. mode='failed' resets retrying/exhausted; mode='all' resets all; model_keys limits both."""
+        active_keys = [link.model.model_key for link in prompt.models if getattr(link.model, "is_active", True)]
+        await self.dmr_repo.ensure_rows(prompt.id, active_keys, run_date)
+        targets = active_keys if model_keys is None else [key for key in active_keys if key in model_keys]
+        await self.dmr_repo.reset_for_manual(prompt.id, targets, run_date, mode=mode)
         runnable = await self.dmr_repo.get_runnable(prompt.id, run_date, now=now)
+        runnable = [row for row in runnable if row.model in targets]
         return await self._execute_models(prompt, runnable, run_date, mode=mode)
 
     async def _execute_models(self, prompt: Prompt, runnable: list, run_date: date, mode: str = "auto") -> list[dict]:

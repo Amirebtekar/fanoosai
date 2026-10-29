@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 from pydantic import BaseModel
 
 class DashboardSummary(BaseModel):
@@ -47,6 +48,34 @@ class PromptHistoryItem(BaseModel):
     status: str
     extraction_status: str
     brands_count: int
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    cached_tokens: int | None = None
+    cost_irt: float | None = None
+    cost_usd: float | None = None
+    web_search_count: int | None = None
+    web_search_queries: list[str] | None = None
+    web_search_actions: list[dict] | None = None
+    citations: list[dict] | None = None
+
+class CostSummaryModel(BaseModel):
+    ai_model: str
+    runs: int
+    cost_irt: float
+    total_tokens: int
+    web_search_count: int
+
+class CostSummary(BaseModel):
+    days: int
+    total_cost_irt: float
+    total_cost_usd: float
+    runs_with_cost: int
+    total_runs: int
+    total_tokens: int
+    web_search_count: int
+    models: list[CostSummaryModel]
 
 class ProjectReferenceItem(BaseModel):
     url: str
@@ -58,6 +87,39 @@ class ProjectReferenceItem(BaseModel):
 
 class ProjectReferencesPage(BaseModel):
     items: list[ProjectReferenceItem]
+    page: int
+    page_size: int
+    total: int
+
+class ProjectSearchQueryItem(BaseModel):
+    query: str
+    prompt_id: int
+    prompt: str
+    ai_model_id: int
+    ai_model: str
+    run_date: datetime
+    count: int
+
+class ProjectSearchQueriesPage(BaseModel):
+    items: list[ProjectSearchQueryItem]
+    page: int
+    page_size: int
+    total: int
+
+class ProjectSearchedSiteItem(BaseModel):
+    url: str
+    domain: str
+    action_type: Literal["open_page", "find_in_page"]
+    pattern: str | None = None
+    prompt_id: int
+    prompt: str
+    ai_model_id: int
+    ai_model: str
+    run_date: datetime
+    count: int
+
+class ProjectSearchedSitesPage(BaseModel):
+    items: list[ProjectSearchedSiteItem]
     page: int
     page_size: int
     total: int

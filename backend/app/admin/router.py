@@ -6,10 +6,11 @@ from datetime import datetime
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import case, delete, func, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.analytics.search_metadata import group_search_queries, query_matches
 from app.auth.fastapi_users import fastapi_users
 from app.core.config import settings
 from app.database.models import AIModel, AIRun, Brand, BrandAlias, Project, ProjectBrand, Prompt, PromptModel, RunBrand, UserTable
@@ -346,6 +347,105 @@ async def export_admin_references(
         content="\ufeff" + output.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=references.csv"},
+    )
+
+
+class AdminSearchQueryItem(BaseModel):
+    query: str
+    count: int
+    project_id: int
+    project_name: str
+    prompt_id: int
+    prompt: str
+    ai_model_id: int
+    ai_model: str
+    run_date: datetime
+
+
+class AdminSearchQueriesPage(BaseModel):
+    items: List[AdminSearchQueryItem]
+    page: int
+    page_size: int
+    total: int
+
+
+def _admin_search_query_groups(rows, search: str = "") -> list[AdminSearchQueryItem]:
+    items = []
+    for group in group_search_queries(rows):
+        if not query_matches(group["query"], search):
+            continue
+        project_id_value, project_name = group["extra"]
+        items.append(AdminSearchQueryItem(
+            query=group["query"],
+            count=group["count"],
+            project_id=project_id_value,
+            project_name=project_name,
+            prompt_id=group["prompt_id"],
+            prompt=group["prompt"],
+            ai_model_id=group["ai_model_id"],
+            ai_model=group["ai_model"],
+            run_date=group["run_date"],
+        ))
+    return items
+
+
+def _admin_search_queries_stmt(project_id: int | None = None, ai_model_id: int | None = None):
+    stmt = (
+        select(
+            Prompt.id, Prompt.text, AIModel.id, AIModel.name, AIRun.created_at,
+            AIRun.web_search_queries, AIRun.web_search_actions, Project.id, Project.name,
+        )
+        .select_from(AIRun)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(AIModel, AIModel.id == AIRun.ai_model_id)
+        .join(Project, Project.id == Prompt.project_id)
+        .where(
+            AIRun.status == "success",
+            or_(AIRun.web_search_queries.is_not(None), AIRun.web_search_actions.is_not(None)),
+        )
+        .order_by(AIRun.created_at.desc(), AIRun.id.desc())
+    )
+    if project_id is not None:
+        stmt = stmt.where(Prompt.project_id == project_id)
+    if ai_model_id is not None:
+        stmt = stmt.where(AIRun.ai_model_id == ai_model_id)
+    return stmt
+
+
+@router.get("/search-queries", response_model=AdminSearchQueriesPage)
+async def admin_search_queries(
+    project_id: int | None = Query(None, gt=0),
+    ai_model_id: int | None = Query(None, gt=0),
+    search: str = Query("", max_length=500, description="جستجو در متن کوئری"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    _: UserTable = Depends(require_superuser),
+) -> AdminSearchQueriesPage:
+    rows = (await session.execute(_admin_search_queries_stmt(project_id, ai_model_id))).all()
+    items = _admin_search_query_groups(rows, search)
+    start = (page - 1) * page_size
+    return AdminSearchQueriesPage(items=items[start:start + page_size], page=page, page_size=page_size, total=len(items))
+
+
+@router.get("/search-queries/export")
+async def export_admin_search_queries(
+    project_id: int | None = Query(None, gt=0),
+    ai_model_id: int | None = Query(None, gt=0),
+    search: str = Query("", max_length=500),
+    session: AsyncSession = Depends(get_session),
+    _: UserTable = Depends(require_superuser),
+) -> Response:
+    rows = (await session.execute(_admin_search_queries_stmt(project_id, ai_model_id))).all()
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["Query", "Count", "Project", "Prompt", "Model", "Last run date"])
+    for item in _admin_search_query_groups(rows, search):
+        writer.writerow([item.query, item.count, item.project_name, item.prompt, item.ai_model, item.run_date.isoformat()])
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=search-queries.csv"},
     )
 
 

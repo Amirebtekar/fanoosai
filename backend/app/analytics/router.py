@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.auth.fastapi_users import fastapi_users
 from app.database.models import Project, Prompt, PromptModel, AIModel, AIRun, Brand, RunBrand, ProjectBrand, OrganizationMember, UserTable
 from app.analytics.schema import *
+from app.analytics.search_metadata import group_search_queries, group_searched_sites
 from app.services.brand_persistence_service import normalize_brand_name
 
 router = APIRouter(tags=["analytics"])
@@ -458,7 +459,10 @@ async def prompt_history(prompt_id: int, ai_model_id: int | None = None, start_d
                          session: AsyncSession = Depends(get_session), user: UserTable = Depends(fastapi_users.current_user())):
     prompt = await owned_prompt(prompt_id, session, user)
     if not prompt: raise HTTPException(404, "Prompt یافت نشد")
-    stmt = select(AIRun.id, AIModel.name, AIRun.created_at, AIRun.request_text, AIRun.response_text, AIRun.status, AIRun.extraction_status, func.count(RunBrand.id)).join(AIModel).outerjoin(RunBrand).where(AIRun.prompt_id == prompt_id)
+    stmt = select(
+        AIRun.id, AIModel.name, AIRun.created_at, AIRun.request_text, AIRun.response_text, AIRun.status, AIRun.extraction_status, func.count(RunBrand.id),
+        *HISTORY_METADATA_COLUMNS,
+    ).join(AIModel).join(Prompt, Prompt.id == AIRun.prompt_id).outerjoin(RunBrand).where(AIRun.prompt_id == prompt_id)
     stmt = filters(stmt, project_id=prompt.project_id, prompt_id=prompt_id, ai_model_id=ai_model_id, start=start_date, end=end_date)
     rows = (await session.execute(stmt.group_by(AIRun.id, AIModel.name).order_by(AIRun.created_at.desc()).offset((page-1)*page_size).limit(page_size))).all()
     count_stmt = filters(
@@ -470,8 +474,95 @@ async def prompt_history(prompt_id: int, ai_model_id: int | None = None, start_d
         end=end_date,
     )
     total = await session.scalar(count_stmt) or 0
-    items = [PromptHistoryItem(ai_run_id=i, ai_model=m, run_date=d, request_text=t, response_text=r, status=s, extraction_status=e, brands_count=c) for i,m,d,t,r,s,e,c in rows]
+    items = [prompt_history_item(row) for row in rows]
     return Page(items=items, page=page, page_size=page_size, total=total)
+
+
+HISTORY_METADATA_COLUMNS = (
+    AIRun.prompt_tokens, AIRun.completion_tokens, AIRun.total_tokens, AIRun.reasoning_tokens, AIRun.cached_tokens,
+    AIRun.cost_irt, AIRun.cost_usd, AIRun.web_search_count, AIRun.web_search_queries, AIRun.web_search_actions, AIRun.citations,
+)
+HISTORY_METADATA_FIELDS = tuple(column.key for column in HISTORY_METADATA_COLUMNS)
+
+
+def _json_items(value, kind: type) -> list | None:
+    if not isinstance(value, list):
+        return None
+    return [item for item in value if isinstance(item, kind)]
+
+
+def prompt_history_item(row) -> PromptHistoryItem:
+    run_id, model, run_date, request_text, response_text, status, extraction_status, brands_count, *metadata = row
+    values = dict(zip(HISTORY_METADATA_FIELDS, metadata))
+    values["web_search_queries"] = _json_items(values.get("web_search_queries"), str)
+    values["web_search_actions"] = _json_items(values.get("web_search_actions"), dict)
+    values["citations"] = _json_items(values.get("citations"), dict)
+    return PromptHistoryItem(
+        ai_run_id=run_id, ai_model=model, run_date=run_date, request_text=request_text, response_text=response_text,
+        status=status, extraction_status=extraction_status, brands_count=brands_count, **values,
+    )
+
+
+@router.get("/projects/{project_id}/cost-summary", response_model=CostSummary)
+async def cost_summary(
+    project_id: int,
+    days: int = Query(7),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    await owned_project(project_id, session, user)
+    try:
+        start, end = model_performance_window(days)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    rows = (await session.execute(
+        select(
+            AIModel.name,
+            func.count(AIRun.id),
+            func.count(AIRun.id).filter(AIRun.cost_irt.isnot(None)),
+            func.coalesce(func.sum(AIRun.cost_irt), 0),
+            func.coalesce(func.sum(AIRun.cost_usd), 0),
+            func.coalesce(func.sum(AIRun.total_tokens), 0),
+            func.coalesce(func.sum(AIRun.web_search_count), 0),
+        )
+        .select_from(AIRun)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(AIModel, AIModel.id == AIRun.ai_model_id)
+        .where(
+            Prompt.project_id == project_id,
+            AIRun.status == "success",
+            AIRun.created_at >= start,
+            AIRun.created_at < end,
+        )
+        .group_by(AIModel.id, AIModel.name)
+    )).all()
+    return build_cost_summary(rows, days)
+
+
+def build_cost_summary(rows, days: int) -> CostSummary:
+    models = []
+    totals = {"runs": 0, "with_cost": 0, "irt": 0.0, "usd": 0.0, "tokens": 0, "searches": 0}
+    for name, runs, with_cost, cost_irt, cost_usd, tokens, searches in rows:
+        runs, with_cost, tokens, searches = int(runs or 0), int(with_cost or 0), int(tokens or 0), int(searches or 0)
+        cost_irt, cost_usd = float(cost_irt or 0), float(cost_usd or 0)
+        totals["runs"] += runs
+        totals["with_cost"] += with_cost
+        totals["irt"] += cost_irt
+        totals["usd"] += cost_usd
+        totals["tokens"] += tokens
+        totals["searches"] += searches
+        models.append(CostSummaryModel(ai_model=name, runs=runs, cost_irt=round(cost_irt, 2), total_tokens=tokens, web_search_count=searches))
+    models.sort(key=lambda item: (-item.cost_irt, -item.runs, item.ai_model))
+    return CostSummary(
+        days=days,
+        total_cost_irt=round(totals["irt"], 2),
+        total_cost_usd=round(totals["usd"], 6),
+        runs_with_cost=totals["with_cost"],
+        total_runs=totals["runs"],
+        total_tokens=totals["tokens"],
+        web_search_count=totals["searches"],
+        models=models,
+    )
 
 @router.get("/projects/{project_id}/references", response_model=ProjectReferencesPage)
 async def project_references(
@@ -533,6 +624,71 @@ async def project_references(
         page=page,
         page_size=page_size,
         total=len(items),
+    )
+
+def _project_search_stmt(project_id: int, prompt_id: int | None, ai_model_id: int | None, *columns, condition):
+    stmt = (
+        select(Prompt.id, Prompt.text, AIModel.id, AIModel.name, AIRun.created_at, *columns)
+        .select_from(AIRun)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(AIModel, AIModel.id == AIRun.ai_model_id)
+        .where(Prompt.project_id == project_id, AIRun.status == "success", condition)
+        .order_by(AIRun.created_at.desc(), AIRun.id.desc())
+    )
+    if prompt_id is not None:
+        stmt = stmt.where(AIRun.prompt_id == prompt_id)
+    if ai_model_id is not None:
+        stmt = stmt.where(AIRun.ai_model_id == ai_model_id)
+    return stmt
+
+
+@router.get("/projects/{project_id}/search-queries", response_model=ProjectSearchQueriesPage)
+async def project_search_queries(
+    project_id: int,
+    prompt_id: int | None = Query(None, gt=0),
+    ai_model_id: int | None = Query(None, gt=0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    await owned_project(project_id, session, user)
+    stmt = _project_search_stmt(
+        project_id, prompt_id, ai_model_id, AIRun.web_search_queries, AIRun.web_search_actions,
+        condition=or_(AIRun.web_search_queries.is_not(None), AIRun.web_search_actions.is_not(None)),
+    )
+    groups = group_search_queries((await session.execute(stmt)).all())
+    start = (page - 1) * page_size
+    return ProjectSearchQueriesPage(
+        items=[ProjectSearchQueryItem(**{key: value for key, value in group.items() if key != "extra"}) for group in groups[start:start + page_size]],
+        page=page,
+        page_size=page_size,
+        total=len(groups),
+    )
+
+
+@router.get("/projects/{project_id}/searched-sites", response_model=ProjectSearchedSitesPage)
+async def project_searched_sites(
+    project_id: int,
+    prompt_id: int | None = Query(None, gt=0),
+    ai_model_id: int | None = Query(None, gt=0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    await owned_project(project_id, session, user)
+    stmt = _project_search_stmt(
+        project_id, prompt_id, ai_model_id, AIRun.web_search_actions,
+        condition=AIRun.web_search_actions.is_not(None),
+    )
+    groups = group_searched_sites((await session.execute(stmt)).all())
+    start = (page - 1) * page_size
+    return ProjectSearchedSitesPage(
+        items=[ProjectSearchedSiteItem(**{key: value for key, value in group.items() if key != "extra"}) for group in groups[start:start + page_size]],
+        page=page,
+        page_size=page_size,
+        total=len(groups),
     )
 
 @router.get("/projects/{project_id}/history", response_model=ProjectHistory)

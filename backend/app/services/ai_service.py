@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import random
 import re
 import ssl
@@ -47,9 +48,279 @@ def avalai_model_key(model_key: str) -> str:
     return model_id.replace(".", "-") if model_id.startswith("claude-") else model_id
 
 
+_METADATA_MAX_ITEMS = 200
+_METADATA_MAX_TEXT = 2048
+_RESPONSE_BODY_KEYS = ("output", "choices", "candidates", "content")
+
+
+def _safe_url(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    url = value.strip()
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return None
+    if parsed.scheme in {"http", "https"} and parsed.netloc and len(url) <= _METADATA_MAX_TEXT:
+        return url
+    return None
+
+
+def _clean_text(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text[:_METADATA_MAX_TEXT] if text else None
+
+
+def _number(value) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    elif isinstance(value, str):
+        try:
+            number = float(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _integer(value) -> int | None:
+    number = _number(value)
+    return int(number) if number is not None else None
+
+
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
+def _first(*values):
+    return next((value for value in values if value is not None), None)
+
+
+def _decode_json_object(text: str) -> dict | None:
+    stripped = text.strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        payload, _ = json.JSONDecoder().raw_decode(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _decode_sse_payload(text: str) -> dict | None:
+    """Rebuild one payload from SSE frames: a final Responses object, else the last usage seen."""
+    merged: dict = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        frame = _decode_json_object(line[5:])
+        if frame is None:
+            continue
+        if isinstance(frame.get("response"), dict) and frame.get("type") in ("response.completed", "response.done"):
+            return frame["response"]
+        for key in ("usage", "estimated_cost", "tool_usage"):
+            if isinstance(frame.get(key), dict):
+                merged[key] = frame[key]
+    return merged or None
+
+
+def extract_response_metadata(raw_body) -> dict:
+    """Usage, cost and web-search details of one provider body; never raises."""
+    result: dict = {
+        "prompt_tokens": None,
+        "completion_tokens": None,
+        "total_tokens": None,
+        "reasoning_tokens": None,
+        "cached_tokens": None,
+        "cost_irt": None,
+        "cost_usd": None,
+        "web_search_count": None,
+        "web_search_queries": [],
+        "web_search_actions": [],
+        "citations": [],
+    }
+    queries: dict[str, None] = {}
+    citations: dict[str, dict] = {}
+
+    def add_query(value) -> None:
+        query = _clean_text(value)
+        if query and len(queries) < _METADATA_MAX_ITEMS:
+            queries[query] = None
+            result["web_search_queries"] = list(queries)
+
+    def add_action(action: dict) -> None:
+        if len(result["web_search_actions"]) < _METADATA_MAX_ITEMS:
+            result["web_search_actions"].append(action)
+
+    def add_citation(url, title=None) -> None:
+        safe = _safe_url(url)
+        if safe is None:
+            return
+        clean_title = _clean_text(title)
+        if safe in citations:
+            if citations[safe]["title"] is None and clean_title:
+                citations[safe]["title"] = clean_title
+        elif len(citations) < _METADATA_MAX_ITEMS:
+            citations[safe] = {"url": safe, "title": clean_title}
+        result["citations"] = list(citations.values())
+
+    try:
+        if isinstance(raw_body, (bytes, bytearray)):
+            raw_body = bytes(raw_body).decode("utf-8", errors="replace")
+        if not isinstance(raw_body, str):
+            return result
+        outer = _decode_json_object(raw_body)
+        if outer is None:
+            payload = _decode_sse_payload(raw_body)
+            if payload is None:
+                return result
+            outer = payload
+        else:
+            payload = _decode_json_object(AIService._unwrap_gateway_body(raw_body)) or outer
+            inner = payload.get("data")
+            if isinstance(inner, dict) and not any(key in payload for key in _RESPONSE_BODY_KEYS):
+                payload = inner
+        containers = [payload] if payload is outer else [payload, outer]
+
+        def lookup(key: str) -> dict:
+            return next((container[key] for container in containers if isinstance(container.get(key), dict)), {})
+
+        usage = lookup("usage")
+        gemini_usage = lookup("usageMetadata")
+        input_details = _dict(usage.get("input_tokens_details")) or _dict(usage.get("prompt_tokens_details"))
+        output_details = _dict(usage.get("output_tokens_details")) or _dict(usage.get("completion_tokens_details"))
+        result["prompt_tokens"] = _integer(_first(usage.get("input_tokens"), usage.get("prompt_tokens"), gemini_usage.get("promptTokenCount")))
+        result["completion_tokens"] = _integer(_first(usage.get("output_tokens"), usage.get("completion_tokens"), gemini_usage.get("candidatesTokenCount")))
+        total = _integer(_first(usage.get("total_tokens"), gemini_usage.get("totalTokenCount")))
+        if total is None and result["prompt_tokens"] is not None and result["completion_tokens"] is not None:
+            total = result["prompt_tokens"] + result["completion_tokens"]
+        result["total_tokens"] = total
+        result["reasoning_tokens"] = _integer(_first(output_details.get("reasoning_tokens"), gemini_usage.get("thoughtsTokenCount")))
+        result["cached_tokens"] = _integer(_first(
+            input_details.get("cached_tokens"), usage.get("cache_read_input_tokens"), gemini_usage.get("cachedContentTokenCount"),
+        ))
+
+        cost = lookup("estimated_cost")
+        result["cost_irt"] = _number(cost.get("irt"))
+        result["cost_usd"] = _number(cost.get("unit"))
+        reported_searches = _integer(_first(
+            _dict(lookup("tool_usage").get("web_search")).get("num_requests"),
+            _dict(usage.get("server_tool_use")).get("web_search_requests"),
+        ))
+        result["web_search_count"] = reported_searches
+
+        counted_searches: int | None = None
+        output = payload.get("output")
+        if isinstance(output, list):
+            counted_searches = 0
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "web_search_call":
+                    action = _dict(item.get("action"))
+                    action_type = action.get("type") if isinstance(action.get("type"), str) else None
+                    item_queries = [query for query in (_clean_text(value) for value in _list(action.get("queries"))) if query]
+                    single_query = _clean_text(action.get("query"))
+                    if action_type == "search" or (action_type is None and (item_queries or single_query)):
+                        counted_searches += 1
+                        for query in item_queries or [single_query]:
+                            add_query(query)
+                        compact: dict = {"type": "search"}
+                        if item_queries:
+                            compact["queries"] = item_queries[:_METADATA_MAX_ITEMS]
+                        elif single_query:
+                            compact["query"] = single_query
+                        sources = list(dict.fromkeys(
+                            url for url in (_safe_url(_dict(source).get("url")) for source in _list(action.get("sources"))) if url
+                        ))
+                        if sources:
+                            compact["sources"] = sources[:_METADATA_MAX_ITEMS]
+                        add_action(compact)
+                    elif action_type is not None:
+                        compact = {"type": _clean_text(action_type) or "unknown"}
+                        url = _safe_url(action.get("url"))
+                        if url:
+                            compact["url"] = url
+                        pattern = _clean_text(action.get("pattern"))
+                        if pattern:
+                            compact["pattern"] = pattern
+                        add_action(compact)
+                elif item.get("type") == "message":
+                    for part in _list(item.get("content")):
+                        for annotation in _list(_dict(part).get("annotations")):
+                            annotation = _dict(annotation)
+                            if annotation.get("type") == "url_citation":
+                                nested = _dict(annotation.get("url_citation"))
+                                add_citation(annotation.get("url") or nested.get("url"), annotation.get("title") or nested.get("title"))
+
+        for choice in _list(payload.get("choices"))[:1]:
+            message = _dict(_dict(choice).get("message"))
+            for annotation in _list(message.get("annotations")):
+                annotation = _dict(annotation)
+                nested = _dict(annotation.get("url_citation"))
+                add_citation(nested.get("url") or annotation.get("url"), nested.get("title") or annotation.get("title"))
+
+        content = payload.get("content")
+        if isinstance(content, list):
+            anthropic_searches = 0
+            for part in content:
+                part = _dict(part)
+                part_type = part.get("type")
+                tool_input = _dict(part.get("input"))
+                if part_type == "server_tool_use" and part.get("name") == "web_search":
+                    anthropic_searches += 1
+                    query = _clean_text(tool_input.get("query"))
+                    add_query(query)
+                    add_action({"type": "search", "query": query} if query else {"type": "search"})
+                elif part_type == "server_tool_use" and part.get("name") == "web_fetch":
+                    url = _safe_url(tool_input.get("url"))
+                    add_action({"type": "open_page", "url": url} if url else {"type": "open_page"})
+                elif part_type == "web_search_tool_result":
+                    for entry in _list(part.get("content")):
+                        entry = _dict(entry)
+                        add_citation(entry.get("url"), entry.get("title"))
+                for citation in _list(part.get("citations")):
+                    citation = _dict(citation)
+                    add_citation(citation.get("url"), citation.get("title"))
+            if anthropic_searches:
+                counted_searches = (counted_searches or 0) + anthropic_searches
+
+        for candidate in _list(payload.get("candidates")):
+            grounding = _dict(_dict(candidate).get("groundingMetadata"))
+            gemini_queries = [query for query in (_clean_text(value) for value in _list(grounding.get("webSearchQueries"))) if query]
+            if gemini_queries:
+                for query in gemini_queries:
+                    add_query(query)
+                add_action({"type": "search", "queries": gemini_queries[:_METADATA_MAX_ITEMS]})
+                counted_searches = (counted_searches or 0) + len(gemini_queries)
+            for chunk in _list(grounding.get("groundingChunks")):
+                web = _dict(_dict(chunk).get("web"))
+                add_citation(web.get("uri"), web.get("title"))
+
+        if result["web_search_count"] is None:
+            result["web_search_count"] = counted_searches
+    except Exception:
+        logger.debug("ai_response_metadata_parse_failed", exc_info=True)
+    return result
+
+
 class AIService:
     _session: aiohttp.ClientSession | None = None
-    last_usage: dict = {}
+    last_usage: dict
+
+    def __init__(self) -> None:
+        self.last_usage = {}
+        self._response_metadata: dict = {}
 
     @classmethod
     async def _get_session(cls) -> aiohttp.ClientSession:
@@ -85,6 +356,8 @@ class AIService:
         prompt_text: str,
         response_format: dict | None = None,
     ) -> tuple[str, str]:
+        self.last_usage = {}
+        self._response_metadata = {}
         deadline_seconds = settings.AI_TOTAL_DEADLINE_SECONDS or settings.RUN_CLAIM_LEASE_SECONDS * 0.5
         deadline = time.monotonic() + deadline_seconds
         base_url = settings.AI_GATEWAY_BASE_URL.rstrip("/")
@@ -111,7 +384,7 @@ class AIService:
         if settings.AI_GATEWAY_ENABLED:
             try:
                 body = await self._request_with_retry(f"{base_url}/v1{endpoint}", payload, model_key, provider="primary", deadline=deadline)
-                self.last_usage = self._usage(body)
+                self.last_usage = getattr(self, "_response_metadata", None) or self._usage(body)
                 return body, "primary"
             except AIProviderError as exc:
                 primary_error = exc
@@ -150,7 +423,7 @@ class AIService:
                     fallback_error=fallback_error,
                 ) from primary_error
             raise
-        self.last_usage = self._usage(body)
+        self.last_usage = getattr(self, "_response_metadata", None) or self._usage(body)
         return body, "9router"
 
     async def _request_with_retry(
@@ -263,7 +536,9 @@ class AIService:
                 body = await response.text()
                 AI_REQUESTS.labels(model_key, "success").inc()
                 unwrapped = self._unwrap_gateway_body(body)
-                return self._normalize_response(unwrapped, provider=provider)
+                normalized = self._normalize_response(unwrapped, provider=provider)
+                self._response_metadata = extract_response_metadata(body)
+                return normalized
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             AI_REQUESTS.labels(model_key, "error").inc()
             logger.warning(

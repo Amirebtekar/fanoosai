@@ -164,7 +164,7 @@ class DailyModelRunRepository:
 
     async def reset_for_manual(self, prompt_id: int, models: list[str], run_date: date, mode: str = "failed") -> list[DailyModelRun]:
         """Reset rows for manual rerun. mode='failed' resets retrying/exhausted; mode='all' resets all."""
-        rows = await self.get_rows(prompt_id, run_date)
+        rows = [row for row in await self.get_rows(prompt_id, run_date) if row.model in models]
         result = []
         for row in rows:
             if mode == "all":

@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { CompetitorRadarCard } from './competitor-radar'
+import { CostSummaryCard } from './cost-summary'
 import { brandRankSummaryCsv, brandRankSummaryPrintHtml, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 export function DashboardPage() {
@@ -318,6 +319,7 @@ function BrandRankReport() {
       </CardContent>
     </Card>
     {projectId && <CompetitorRadarCard key={projectId} projectId={projectId} prompts={prompts} />}
+    {projectId && <CostSummaryCard key={`cost-${projectId}`} projectId={projectId} />}
     </>
   )
 }

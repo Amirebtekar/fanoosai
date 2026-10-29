@@ -1,3 +1,4 @@
+import math
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, or_, select, update
@@ -8,6 +9,25 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database.models import AIRun, DailyPromptRun, Prompt, Alert, AlertRule, ProjectBrand, RunBrand
 from app.core.config import settings
+
+
+def _usage_float(value) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _usage_int(value) -> int | None:
+    number = _usage_float(value)
+    return int(number) if number is not None else None
+
+
+def _usage_list(value) -> list | None:
+    return list(value) if isinstance(value, list) else None
 
 
 class AIRunRepository:
@@ -29,6 +49,7 @@ class AIRunRepository:
         usage: dict | None = None,
     ) -> AIRun:
         now = datetime.now(timezone.utc)
+        usage = usage if isinstance(usage, dict) else {}
         run = AIRun(
             prompt_id=prompt_id,
             ai_model_id=ai_model_id,
@@ -36,10 +57,17 @@ class AIRunRepository:
             response_text=response_text,
             status=status,
             provider_used=provider_used,
-            prompt_tokens=(usage or {}).get("prompt_tokens"),
-            completion_tokens=(usage or {}).get("completion_tokens"),
-            total_tokens=(usage or {}).get("total_tokens"),
-            cost_irt=(usage or {}).get("cost_irt"),
+            prompt_tokens=_usage_int(usage.get("prompt_tokens")),
+            completion_tokens=_usage_int(usage.get("completion_tokens")),
+            total_tokens=_usage_int(usage.get("total_tokens")),
+            cost_irt=_usage_float(usage.get("cost_irt")),
+            reasoning_tokens=_usage_int(usage.get("reasoning_tokens")),
+            cached_tokens=_usage_int(usage.get("cached_tokens")),
+            web_search_count=_usage_int(usage.get("web_search_count")),
+            cost_usd=_usage_float(usage.get("cost_usd")),
+            web_search_queries=_usage_list(usage.get("web_search_queries")),
+            web_search_actions=_usage_list(usage.get("web_search_actions")),
+            citations=_usage_list(usage.get("citations")),
             extraction_status="pending" if status == "success" else "failed",
             error_message=error_message,
             error_provider=error_provider,

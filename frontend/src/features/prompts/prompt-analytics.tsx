@@ -10,12 +10,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { toast } from 'sonner'
-import { ExternalLink, FileText, Link2, Loader2, Printer, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
+import { ExternalLink, FileText, Globe, Link2, Loader2, Printer, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Badge } from '@/components/ui/badge'
-import { getProjectReferences, getPromptBrandTrends, getLatestRankings, getPromptHistory, listProjects, listPrompts, getErrorMessage, type ProjectRead, type ProjectReference, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
+import { getProjectReferences, getProjectSearchedSites, getProjectSearchQueries, getPromptBrandTrends, getLatestRankings, getPromptHistory, listProjects, listPrompts, getErrorMessage, type ProjectRead, type ProjectReference, type ProjectSearchedSite, type ProjectSearchQuery, type PromptBrandTrends, type PromptRankingItem, type PromptHistoryItem, type PromptRead } from '@/lib/api'
 import { BrandTrendChart } from './brand-trend-chart'
+import { RunMetadataDetails } from './run-metadata-details'
 import { buildRankTableRows, rankReportDays, tehranDateKey } from './rank-report-utils'
+import { hasNextPage, SEARCH_PAGE_SIZE, siteActionText, siteHref, usageCountLabel } from './search-metadata'
 
 export function modelResponseText(responseText: string | null): string {
   if (!responseText) return 'برای این اجرا پاسخی ثبت نشده است.'
@@ -73,6 +75,14 @@ export function PromptAnalyticsPage() {
   const [referencePage, setReferencePage] = useState(1)
   const [referenceTotal, setReferenceTotal] = useState(0)
   const [referenceLoading, setReferenceLoading] = useState(false)
+  const [searchQueries, setSearchQueries] = useState<ProjectSearchQuery[]>([])
+  const [searchQueryPage, setSearchQueryPage] = useState(1)
+  const [searchQueryTotal, setSearchQueryTotal] = useState(0)
+  const [searchQueryLoading, setSearchQueryLoading] = useState(false)
+  const [searchedSites, setSearchedSites] = useState<ProjectSearchedSite[]>([])
+  const [searchedSitePage, setSearchedSitePage] = useState(1)
+  const [searchedSiteTotal, setSearchedSiteTotal] = useState(0)
+  const [searchedSiteLoading, setSearchedSiteLoading] = useState(false)
   const [history, setHistory] = useState<PromptHistoryItem[]>([])
   const [historyModel, setHistoryModel] = useState('all')
   const [historyDate, setHistoryDate] = useState<Date>()
@@ -96,12 +106,14 @@ export function PromptAnalyticsPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [projectsData, promptsData, rankingsData, trendData, referenceData] = await Promise.all([
+      const [projectsData, promptsData, rankingsData, trendData, referenceData, searchQueryData, searchedSiteData] = await Promise.all([
         listProjects(),
         listPrompts(Number(projectId)),
         getLatestRankings(Number(promptId)),
         getPromptBrandTrends(Number(promptId)),
         getProjectReferences(Number(projectId), { prompt_id: Number(promptId) }),
+        getProjectSearchQueries(Number(projectId), { prompt_id: Number(promptId), page_size: SEARCH_PAGE_SIZE }),
+        getProjectSearchedSites(Number(projectId), { prompt_id: Number(promptId), page_size: SEARCH_PAGE_SIZE }),
       ])
       const initialTrend = defaultTrendSelection(trendData)
       setProjects(projectsData)
@@ -114,6 +126,13 @@ export function PromptAnalyticsPage() {
       setAllTrends(trendData)
       setReferences(referenceData.items)
       setReferenceTotal(referenceData.total)
+      setReferencePage(1)
+      setSearchQueries(searchQueryData.items)
+      setSearchQueryTotal(searchQueryData.total)
+      setSearchQueryPage(1)
+      setSearchedSites(searchedSiteData.items)
+      setSearchedSiteTotal(searchedSiteData.total)
+      setSearchedSitePage(1)
     }
     catch (e) { toast.error(getErrorMessage(e, 'خطا در دریافت آنالیز')) }
     finally { setLoading(false) }
@@ -133,6 +152,28 @@ export function PromptAnalyticsPage() {
       setReferenceTotal(result.total)
     } catch (e) { toast.error(getErrorMessage(e, 'خطا در دریافت منابع وب')) }
     finally { setReferenceLoading(false) }
+  }
+
+  const loadSearchQueries = async (page = 1) => {
+    setSearchQueryLoading(true)
+    try {
+      const result = await getProjectSearchQueries(Number(projectId), { prompt_id: Number(promptId), page, page_size: SEARCH_PAGE_SIZE })
+      setSearchQueries(result.items)
+      setSearchQueryPage(result.page)
+      setSearchQueryTotal(result.total)
+    } catch (e) { toast.error(getErrorMessage(e, 'خطا در دریافت کوئری‌های جستجو')) }
+    finally { setSearchQueryLoading(false) }
+  }
+
+  const loadSearchedSites = async (page = 1) => {
+    setSearchedSiteLoading(true)
+    try {
+      const result = await getProjectSearchedSites(Number(projectId), { prompt_id: Number(promptId), page, page_size: SEARCH_PAGE_SIZE })
+      setSearchedSites(result.items)
+      setSearchedSitePage(result.page)
+      setSearchedSiteTotal(result.total)
+    } catch (e) { toast.error(getErrorMessage(e, 'خطا در دریافت سایت‌های بررسی‌شده')) }
+    finally { setSearchedSiteLoading(false) }
   }
 
   const applyTrendFilters = async () => {
@@ -375,6 +416,115 @@ export function PromptAnalyticsPage() {
           </CardContent>
         </Card>
 
+        <Card className="order-7 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+          <CardHeader className="gap-3 border-b border-border/70">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Search className="size-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold">کوئری‌های جستجوی وب</CardTitle>
+                  <CardDescription className="mt-1 text-sm font-medium text-muted-text">عبارت‌هایی که مدل برای پاسخ به این پرامپت در وب جستجو کرده است.</CardDescription>
+                </div>
+              </div>
+              <Badge variant="outline">{searchQueryTotal.toLocaleString('fa-IR')} کوئری</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-5">
+            {searchQueries.length ? (
+              <ol className="max-h-96 space-y-3 overflow-auto" aria-label="فهرست کوئری‌های جستجوی وب">
+                {searchQueries.map(item => {
+                  const countLabel = usageCountLabel(item.count)
+                  return (
+                    <li key={`${item.prompt_id}-${item.ai_model_id}-${item.query}`} className="border border-border bg-background p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <p className="min-w-0 flex-1 break-words text-sm font-semibold" dir="auto">{item.query}</p>
+                        {countLabel && <Badge variant="secondary" className="shrink-0">{countLabel}</Badge>}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-text">
+                        <span className="max-w-full truncate">پرامپت {item.prompt_id.toLocaleString('fa-IR')}: {item.prompt}</span>
+                        <span>{item.ai_model}</span>
+                        <time dateTime={item.run_date}>{new Date(item.run_date).toLocaleString('fa-IR')}</time>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ol>
+            ) : (
+              <p role="status" className="py-6 text-center text-sm font-medium text-muted-text">برای این پرامپت هنوز کوئری جستجویی ثبت نشده است؛ فقط اجراهای جدید کوئری ذخیره می‌کنند.</p>
+            )}
+            {searchQueryTotal > SEARCH_PAGE_SIZE && (
+              <div className="flex items-center justify-end gap-2 border-t border-border/70 pt-4">
+                <Button type="button" variant="outline" disabled={searchQueryLoading || searchQueryPage === 1} onClick={() => loadSearchQueries(searchQueryPage - 1)}>قبلی</Button>
+                <span className="text-xs text-muted-text">صفحه {searchQueryPage.toLocaleString('fa-IR')}</span>
+                <Button type="button" variant="outline" disabled={searchQueryLoading || !hasNextPage(searchQueryPage, searchQueryTotal)} onClick={() => loadSearchQueries(searchQueryPage + 1)}>بعدی</Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="order-8 border-border shadow-[6px_6px_0_var(--color-shadow)]">
+          <CardHeader className="gap-3 border-b border-border/70">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Globe className="size-5" aria-hidden="true" />
+                </div>
+                <div>
+                  <CardTitle className="text-base font-bold">سایت‌های بررسی‌شده توسط مدل</CardTitle>
+                  <CardDescription className="mt-1 text-sm font-medium text-muted-text">صفحه‌هایی که مدل هنگام جستجو باز کرده یا داخل آن‌ها جستجو کرده است.</CardDescription>
+                </div>
+              </div>
+              <Badge variant="outline">{searchedSiteTotal.toLocaleString('fa-IR')} سایت</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-5">
+            {searchedSites.length ? (
+              <ol className="max-h-96 space-y-3 overflow-auto" aria-label="فهرست سایت‌های بررسی‌شده">
+                {searchedSites.map(site => {
+                  const href = siteHref(site)
+                  const countLabel = usageCountLabel(site.count)
+                  return (
+                    <li key={`${site.prompt_id}-${site.ai_model_id}-${site.action_type}-${site.url}`} className="border border-border bg-background p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        {href ? (
+                          <a className="inline-flex min-w-0 max-w-full flex-1 items-start gap-1 break-all text-sm font-semibold text-primary underline underline-offset-4" href={href} target="_blank" rel="noopener noreferrer" dir="ltr">
+                            <span>{site.url}</span>
+                            <ExternalLink className="mt-1 size-3.5 shrink-0" aria-hidden="true" />
+                            <span className="sr-only">در پنجره جدید باز می‌شود</span>
+                          </a>
+                        ) : (
+                          <span className="min-w-0 flex-1 break-all text-sm font-semibold" dir="ltr">{site.url}</span>
+                        )}
+                        <div className="flex shrink-0 flex-wrap gap-1">
+                          <Badge variant="outline">{siteActionText(site)}</Badge>
+                          {countLabel && <Badge variant="secondary">{countLabel}</Badge>}
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-text">
+                        <span dir="ltr">{site.domain}</span>
+                        <span className="max-w-full truncate">پرامپت {site.prompt_id.toLocaleString('fa-IR')}: {site.prompt}</span>
+                        <span>{site.ai_model}</span>
+                        <time dateTime={site.run_date}>{new Date(site.run_date).toLocaleString('fa-IR')}</time>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ol>
+            ) : (
+              <p role="status" className="py-6 text-center text-sm font-medium text-muted-text">برای این پرامپت هنوز سایتی توسط مدل بررسی نشده است؛ فقط اجراهای جدید این اطلاعات را ذخیره می‌کنند.</p>
+            )}
+            {searchedSiteTotal > SEARCH_PAGE_SIZE && (
+              <div className="flex items-center justify-end gap-2 border-t border-border/70 pt-4">
+                <Button type="button" variant="outline" disabled={searchedSiteLoading || searchedSitePage === 1} onClick={() => loadSearchedSites(searchedSitePage - 1)}>قبلی</Button>
+                <span className="text-xs text-muted-text">صفحه {searchedSitePage.toLocaleString('fa-IR')}</span>
+                <Button type="button" variant="outline" disabled={searchedSiteLoading || !hasNextPage(searchedSitePage, searchedSiteTotal)} onClick={() => loadSearchedSites(searchedSitePage + 1)}>بعدی</Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <Card className="order-2 border-border shadow-[6px_6px_0_var(--color-shadow)]">
           <CardHeader className="gap-2 border-b border-border/70">
             <div className="flex items-start gap-3">
@@ -417,6 +567,7 @@ export function PromptAnalyticsPage() {
                       <span>{new Date(run.run_date).toLocaleString('fa-IR')}</span>
                     </div>
                     <div className="max-h-80 overflow-auto break-words p-4 text-sm leading-7 [&_a]:underline [&_h1]:mb-4 [&_h1]:text-xl [&_h1]:font-black [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-black [&_h3]:mb-2 [&_h3]:font-bold [&_hr]:my-4 [&_li]:ms-5 [&_ol]:my-3 [&_ol]:list-decimal [&_p]:my-3 [&_strong]:font-black [&_ul]:my-3 [&_ul]:list-disc" dir="auto"><ReactMarkdown>{modelResponseText(run.response_text)}</ReactMarkdown></div>
+                    <RunMetadataDetails run={run} />
                   </div>
                 ))}
               </div>

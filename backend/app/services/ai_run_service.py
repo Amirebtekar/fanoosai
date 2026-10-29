@@ -74,24 +74,35 @@ class AIRunService:
         self, prompt: Prompt, *, now: datetime | None = None
     ) -> list[dict]:
         run_date = self._run_date(now)
-        model_keys = [link.model.model_key for link in prompt.models]
         dmr_rows = await self._get_dmr_rows(prompt.id, run_date)
         dmr_map = {r.model: r for r in dmr_rows}
-        result = [
-            {
+        claims = await self._get_claim_sources(prompt.id, [link.model.id for link in prompt.models], run_date)
+        result = []
+        for link in prompt.models:
+            is_active = bool(getattr(link.model, "is_active", True))
+            row = dmr_map.get(link.model.model_key)
+            if row is not None:
+                can_run = row.status in ("pending", "retrying")
+                claim_source = row.status
+            else:
+                claim_source = claims.get(link.model.id)
+                can_run = claim_source is None
+            result.append({
                 "model_id": link.model.id,
                 "model_name": link.model.name,
-                "model_is_active": bool(getattr(link.model, "is_active", True)),
-                "can_run": bool(getattr(link.model, "is_active", True)) and (
-                    link.model.model_key not in dmr_map
-                    or dmr_map[link.model.model_key].status in ("pending", "retrying")
-                ),
-                "claim_source": dmr_map.get(link.model.model_key).status if link.model.model_key in dmr_map else None,
-            }
-            for link in prompt.models
-        ]
+                "model_is_active": is_active,
+                "can_run": is_active and can_run,
+                "claim_source": claim_source,
+            })
         logger.info("execution_availability_result", extra={"event_data": {"prompt_id": prompt.id, "models": [(r["model_name"], r["can_run"], r["claim_source"]) for r in result]}})
         return result
+
+    async def _get_claim_sources(self, prompt_id: int, model_ids: list[int], run_date) -> dict:
+        try:
+            return await self.run_repo.get_daily_claim_sources(prompt_id, model_ids, run_date)
+        except Exception as exc:
+            logger.warning("daily_claims_failed", extra={"event_data": {"prompt_id": prompt_id, "error": str(exc)}})
+            return {}
 
     async def _get_dmr_rows(self, prompt_id: int, run_date) -> list:
         try:
