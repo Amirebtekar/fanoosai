@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { brandRankSummaryCsv, brandRankSummaryPrintHtml, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
+import { brandRankSummaryCsv, brandRankSummaryPrintHtml, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 describe('dashboard brand rank model details', () => {
   it('averages daily ranks by model over all models and includes all days', () => {
@@ -36,13 +36,14 @@ describe('dashboard brand rank model details', () => {
 
   it('exports all filtered summary rows and prevents spreadsheet formulas', () => {
     const csv = brandRankSummaryCsv([
-      { prompt_id: 1, prompt: 'هاست "ارزان"', brand_id: 2, brand: 'پارس‌پک', domain: 'parspack.com', average_rank: 2.5, observations: 3 },
+      { prompt_id: 1, prompt: 'هاست "ارزان"', brand_id: 2, brand: 'پارس‌پک', domain: 'parspack.com', average_rank: 2.5, observations: 3, total_runs: 4 },
       { prompt_id: 3, prompt: '=HYPERLINK("https://bad.example")', brand_id: 4, brand: 'ایران‌سرور', domain: null, average_rank: 1, observations: 1 },
     ])
 
     expect(csv.charCodeAt(0)).toBe(0xFEFF)
-    expect(csv).toContain('"هاست ""ارزان""","پارس‌پک","parspack.com","2.50","3"')
-    expect(csv).toContain('"\'=HYPERLINK(""https://bad.example"")","ایران‌سرور","","1.00","1"')
+    expect(csv).toContain('"تعداد مشاهده","تعداد کل پاسخ‌ها"')
+    expect(csv).toContain('"هاست ""ارزان""","پارس‌پک","parspack.com","2.50","3","4"')
+    expect(csv).toContain('"\'=HYPERLINK(""https://bad.example"")","ایران‌سرور","","1.00","1","1"')
     expect(csv.split('\r\n')).toHaveLength(3)
   })
 
@@ -55,6 +56,18 @@ describe('dashboard brand rank model details', () => {
     expect(html).toContain('&lt;img src=x&gt;')
     expect(html).toContain('2.50')
     expect(html).not.toContain('<script>alert(1)</script>')
+  })
+
+  it('labels observations against the total number of answers', () => {
+    expect(observationLabel({ observations: 34, total_runs: 35 })).toBe('۳۴ از ۳۵')
+    expect(observationLabel({ observations: 34, total_runs: 35 }, 'en-US')).toBe('34 از 35')
+    expect(observationLabel({ observations: 5 })).toBe('۵')
+    expect(observationTotal({ observations: 6, total_runs: 4 })).toBe(6)
+
+    const html = brandRankSummaryPrintHtml([
+      { prompt_id: 1, prompt: 'p', brand_id: 2, brand: 'b', domain: null, average_rank: 1, observations: 34, total_runs: 35 },
+    ], { project: 'x', prompt: 'y', brand: 'z', days: 7 })
+    expect(html).toContain('<td>34 از 35</td>')
   })
 
   it('builds a seven-day Tehran range and UTC query boundaries', () => {

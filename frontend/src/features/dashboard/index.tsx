@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
-import { brandRankSummaryCsv, brandRankSummaryPrintHtml, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
+import { brandRankSummaryCsv, brandRankSummaryPrintHtml, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays } from './rank-model-details'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -279,7 +279,9 @@ function BrandRankReport() {
                       </td>
                       <td className='p-2 font-bold'>{item.brand}{item.domain && <span className='ms-2 text-xs font-normal text-muted-text' dir='ltr'>{item.domain}</span>}</td>
                       <td className='p-2 font-black tabular-nums'>{item.average_rank.toFixed(2)}</td>
-                      <td className='p-2 tabular-nums'>{item.observations.toLocaleString('fa-IR')}</td>
+                      <td className='p-2 tabular-nums' title={item.total_runs == null ? undefined : observationTotal(item) > item.observations ? `در ${(observationTotal(item) - item.observations).toLocaleString('fa-IR')} پاسخ از ${observationTotal(item).toLocaleString('fa-IR')} پاسخ این برند نیامده است` : 'در همهٔ پاسخ‌ها آمده است'}>
+                        {observationLabel(item)}
+                      </td>
                     </tr>
                     {isExpanded && <tr key={`${detailKey}-details`} className='brand-rank-details-row border-b-2 border-border bg-muted/10'>
                       <td colSpan={4} className='p-3'>

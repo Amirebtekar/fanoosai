@@ -23,17 +23,22 @@ class Rows:
 
 
 class Session:
-    def __init__(self, rows=()):
+    def __init__(self, rows=(), totals=()):
         self.rows = list(rows)
+        self.totals = list(totals)
         self.statement = None
+        self.totals_statement = None
 
     async def scalar(self, statement):
         self.count_statement = statement
         return len(self.rows)
 
     async def execute(self, statement):
-        self.statement = statement
-        return Rows(self.rows)
+        if self.statement is None:
+            self.statement = statement
+            return Rows(self.rows)
+        self.totals_statement = statement
+        return Rows(self.totals)
 
 
 @pytest.mark.asyncio
@@ -53,7 +58,7 @@ async def test_brand_rank_summary_averages_all_models_and_limits_to_tehran_windo
     session = Session([
         (33, "هاست ایرانی ارزان از کجا بگیرم؟", 1, "پارس‌پک", "parspack.com", 1.5, 4),
         (33, "هاست ایرانی ارزان از کجا بگیرم؟", 6, "ایران‌سرور", "iranserver.com", 2.0, 3),
-    ])
+    ], totals=[(33, 5)])
 
     result = await analytics_router.brand_rank_summary(
         10,
@@ -76,7 +81,14 @@ async def test_brand_rank_summary_averages_all_models_and_limits_to_tehran_windo
         domain="parspack.com",
         average_rank=1.5,
         observations=4,
+        total_runs=5,
     )
+    assert result.items[1].total_runs == 5
+    totals_sql = str(session.totals_statement.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert "ai_runs.prompt_id IN (33)" in totals_sql
+    assert "ai_runs.status = 'success'" in totals_sql
+    assert "ai_runs.created_at >= '2026-09-20 00:00:00+00:00'" in totals_sql
+    assert "ai_runs.created_at < '2026-09-27 00:00:00+00:00'" in totals_sql
     assert "prompts.project_id = 10" in sql
     assert "prompts.id = 33" in sql
     assert "brands.id = 1" in sql
@@ -87,6 +99,22 @@ async def test_brand_rank_summary_averages_all_models_and_limits_to_tehran_windo
     assert "ai_runs.created_at < '2026-09-27 00:00:00+00:00'" in sql
     assert "GROUP BY prompts.id, prompts.text, brands.id, brands.name, brands.domain" in sql
     assert "ai_runs.ai_model_id =" not in sql
+
+
+@pytest.mark.asyncio
+async def test_brand_rank_summary_total_never_below_observations_and_skips_query_when_empty(monkeypatch):
+    async def owned_project(project_id, session, user):
+        return None
+
+    monkeypatch.setattr(analytics_router, "owned_project", owned_project)
+    session = Session([(33, "p", 1, "b", "b.com", 1.0, 4)], totals=[])
+    result = await analytics_router.brand_rank_summary(10, days=7, prompt_id=None, brand_id=None, page=1, page_size=20, session=session, user=SimpleNamespace(id=4))
+    assert result.items[0].total_runs == 4
+
+    empty = Session([])
+    result = await analytics_router.brand_rank_summary(10, days=7, prompt_id=None, brand_id=None, page=1, page_size=20, session=empty, user=SimpleNamespace(id=4))
+    assert result.items == []
+    assert empty.totals_statement is None
 
 
 @pytest.mark.asyncio

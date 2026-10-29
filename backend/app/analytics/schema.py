@@ -131,6 +131,7 @@ class BrandRankSummaryItem(BaseModel):
     domain: str | None
     average_rank: float
     observations: int
+    total_runs: int = 0
 
 class RankReportRow(BaseModel):
     prompt_id: int

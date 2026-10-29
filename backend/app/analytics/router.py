@@ -229,6 +229,21 @@ async def brand_rank_summary(
         .offset((page - 1) * page_size)
         .limit(page_size)
     )).all()
+    # Denominator for "observations": every successful answer of the prompt in the
+    # same window, so "34 of 35" means the brand was missing from one answer.
+    prompt_ids = sorted({row[0] for row in rows})
+    totals: dict[int, int] = {}
+    if prompt_ids:
+        totals = dict((await session.execute(
+            select(AIRun.prompt_id, func.count(AIRun.id))
+            .where(
+                AIRun.prompt_id.in_(prompt_ids),
+                AIRun.status == "success",
+                AIRun.created_at >= start,
+                AIRun.created_at < end,
+            )
+            .group_by(AIRun.prompt_id)
+        )).all())
     items = [BrandRankSummaryItem(
         prompt_id=prompt_value,
         prompt=prompt_text,
@@ -237,6 +252,7 @@ async def brand_rank_summary(
         domain=domain,
         average_rank=float(average_rank),
         observations=observations,
+        total_runs=max(int(totals.get(prompt_value, 0)), observations),
     ) for prompt_value, prompt_text, brand_value, brand, domain, average_rank, observations in rows]
     return Page(items=items, page=page, page_size=page_size, total=total)
 

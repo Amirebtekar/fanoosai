@@ -46,9 +46,21 @@ export function summarizeModelRanks(items: BrandTrend[], dayKeys: string[]) {
   }).sort((a, b) => (a.average_rank ?? Infinity) - (b.average_rank ?? Infinity) || a.ai_model.localeCompare(b.ai_model))
 }
 
+/** Total answers the brand could have appeared in (never below its observations). */
+export function observationTotal(item: Pick<BrandRankSummaryItem, 'observations' | 'total_runs'>): number {
+  return Math.max(item.total_runs ?? item.observations, item.observations)
+}
+
+/** "34 از 35" style label; falls back to the plain count when the total is unknown. */
+export function observationLabel(item: Pick<BrandRankSummaryItem, 'observations' | 'total_runs'>, locale = 'fa-IR'): string {
+  const seen = item.observations.toLocaleString(locale)
+  if (item.total_runs == null) return seen
+  return `${seen} از ${observationTotal(item).toLocaleString(locale)}`
+}
+
 export function brandRankSummaryCsv(items: BrandRankSummaryItem[]): string {
-  const headers = ['پرامپت', 'برند', 'دامنه', 'میانگین رتبه', 'تعداد مشاهده']
-  const values = items.map(item => [item.prompt, item.brand, item.domain ?? '', item.average_rank.toFixed(2), item.observations])
+  const headers = ['پرامپت', 'برند', 'دامنه', 'میانگین رتبه', 'تعداد مشاهده', 'تعداد کل پاسخ‌ها']
+  const values = items.map(item => [item.prompt, item.brand, item.domain ?? '', item.average_rank.toFixed(2), item.observations, observationTotal(item)])
   const escape = (value: string | number) => {
     const text = String(value)
     const safeText = /^\s*[=+\-@]/.test(text) ? `'${text}` : text
@@ -62,7 +74,7 @@ export function brandRankSummaryPrintHtml(
   filters: { project: string; prompt: string; brand: string; days: number }
 ): string {
   const escape = (value: string | number) => String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character)
-  const rows = items.map(item => `<tr><td>${escape(item.prompt)}</td><td>${escape(item.brand)}</td><td dir="ltr">${escape(item.domain ?? '—')}</td><td>${escape(item.average_rank.toFixed(2))}</td><td>${escape(item.observations)}</td></tr>`).join('')
+  const rows = items.map(item => `<tr><td>${escape(item.prompt)}</td><td>${escape(item.brand)}</td><td dir="ltr">${escape(item.domain ?? '—')}</td><td>${escape(item.average_rank.toFixed(2))}</td><td>${escape(observationLabel(item, 'en-US'))}</td></tr>`).join('')
   return `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>گزارش رتبه برندها</title><style>@page{size:landscape;margin:12mm}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:20px;margin:0 0 12px}p{font-size:12px;margin:4px 0 16px}.filters{display:flex;gap:18px;flex-wrap:wrap;font-size:11px;margin-bottom:14px}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #777;padding:6px;text-align:right}th{background:#eee}tbody tr{break-inside:avoid}</style></head><body><h1>گزارش رتبه برندها</h1><div class="filters"><span>پروژه: ${escape(filters.project)}</span><span>پرامپت: ${escape(filters.prompt)}</span><span>برند: ${escape(filters.brand)}</span><span>بازه: ${escape(filters.days)} روز</span></div><table><thead><tr>${['پرامپت','برند','دامنه','میانگین رتبه','تعداد مشاهده'].map(label => `<th>${label}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></body></html>`
 }
 
