@@ -67,56 +67,51 @@ class DailyModelRunService:
         return await self._execute_models(prompt, runnable, run_date, mode=mode)
 
     async def _execute_models(self, prompt: Prompt, runnable: list, run_date: date, mode: str = "auto") -> list[dict]:
-        results = []
-        for row in runnable:
-            model_key = row.model
-            link = next((l for l in prompt.models if l.model.model_key == model_key), None)
-            if link is None:
-                continue
-            model = link.model
+        # Capture plain values up front: a rollback inside any step expires ORM objects,
+        # and touching an expired attribute under asyncio raises MissingGreenlet.
+        prompt_id = prompt.id
+        prompt_text = prompt.text
+        models_by_key = {link.model.model_key: (link.model.id, getattr(link.model, "name", link.model.model_key)) for link in prompt.models}
+        jobs = [(row.model, row.attempts) for row in runnable]
 
-            locked = await self.dmr_repo.acquire_lock(prompt.id, model_key, run_date)
+        results = []
+        for model_key, previous_attempts in jobs:
+            if model_key not in models_by_key:
+                continue
+            model_id, model_name = models_by_key[model_key]
+            attempts = previous_attempts + 1
+
+            locked = await self.dmr_repo.acquire_lock(prompt_id, model_key, run_date)
             if not locked:
                 continue
 
             try:
                 response_text, provider_used = await self.ai_service.run_prompt_with_provider(
-                    model.model_key, prompt.text,
+                    model_key, prompt_text,
                 )
                 usage = getattr(self.ai_service, "last_usage", {})
                 if not _is_valid_answer(response_text):
-                    logger.warning("daily_model_run_last_resort_guard", extra={"event_data": {"model": model_key, "prompt_id": prompt.id}})
+                    logger.warning("daily_model_run_last_resort_guard", extra={"event_data": {"model": model_key, "prompt_id": prompt_id}})
                     raise AIProviderError(provider_used or "primary", None, body="empty or error envelope answer")
 
                 run = await self.run_repo.create(
-                    prompt_id=prompt.id, ai_model_id=model.id, request_text=prompt.text,
+                    prompt_id=prompt_id, ai_model_id=model_id, request_text=prompt_text,
                     response_text=response_text, status="success",
                     provider_used=provider_used, usage=usage,
                 )
-                await self.dmr_repo.mark_success(prompt.id, model_key, run_date, run.id)
-
-                if self.extraction_service and self.persistence_service and response_text.strip():
-                    try:
-                        extraction = await self.extraction_service.extract(response_text)
-                        saved = await self.persistence_service.persist(run.id, extraction)
-                        await self.run_repo.alert_new_competitor(prompt.id, [b.name for b in extraction.brands])
-                        await self.run_repo.alert_rank_changes(run.id)
-                    except Exception as exc:
-                        safe_ext = sanitize_body(str(exc))[:500]
-                        if hasattr(self.run_repo, "update_extraction"):
-                            await self.run_repo.update_extraction(run, "failed", safe_ext)
-
-                results.append(self._model_result(model_key, "success", row.attempts + 1, None))
+                await self.dmr_repo.mark_success(prompt_id, model_key, run_date, run.id)
+                await self._extract_brands(prompt_id, run, response_text)
+                results.append(self._model_result(model_key, "success", attempts, None))
             except AIProviderError as exc:
                 safe_msg = sanitize_body(str(exc))[:500]
-                run = await self.run_repo.create(
-                    prompt_id=prompt.id, ai_model_id=model.id, request_text=prompt.text,
+                await self.run_repo.create(
+                    prompt_id=prompt_id, ai_model_id=model_id, request_text=prompt_text,
                     status="failed", error_message=safe_msg,
                     error_provider=exc.provider, error_status=exc.status,
                     error_retryable=exc.retryable,
                 )
                 new_status = await self.dmr_repo.mark_failure(
-                    prompt.id, model_key, run_date,
+                    prompt_id, model_key, run_date,
                     error_message=safe_msg,
                     error_provider=exc.provider,
                     error_status=exc.status,
@@ -126,28 +121,70 @@ class DailyModelRunService:
                 body_snippet = sanitize_body(exc.body)[:200]
                 needs_fix = " needs manual fix" if exc.retryable is False else ""
                 await self.run_repo.alert_run_failure(
-                    prompt.id,
-                    f"{getattr(model, 'name', model_key)} execution failed: "
+                    prompt_id,
+                    f"{model_name} execution failed: "
                     f"provider={exc.provider} status={exc.status} body={body_snippet}{needs_fix}",
                 )
-                results.append(self._model_result(model_key, new_status, row.attempts + 1, _public_error(exc)))
+                results.append(self._model_result(model_key, new_status, attempts, _public_error(exc)))
             except Exception as exc:
                 safe_msg = sanitize_body(str(exc))[:500]
-                run = await self.run_repo.create(
-                    prompt_id=prompt.id, ai_model_id=model.id, request_text=prompt.text,
+                await self.run_repo.create(
+                    prompt_id=prompt_id, ai_model_id=model_id, request_text=prompt_text,
                     status="failed", error_message=safe_msg,
                 )
                 new_status = await self.dmr_repo.mark_failure(
-                    prompt.id, model_key, run_date,
+                    prompt_id, model_key, run_date,
                     error_message=safe_msg,
                     error_provider=None, error_status=None, error_retryable=None,
                     retry_interval_minutes=settings.DAILY_RETRY_INTERVAL_MINUTES,
                 )
-                results.append(self._model_result(model_key, new_status, row.attempts + 1, "request failed"))
+                results.append(self._model_result(model_key, new_status, attempts, "request failed"))
             finally:
-                await self.dmr_repo.release_lock(prompt.id, model_key, run_date)
+                await self.dmr_repo.release_lock(prompt_id, model_key, run_date)
 
         return results
+
+    async def _extract_brands(self, prompt_id: int, run, response_text: str) -> None:
+        """Extract and store brands for a successful answer. Never raises.
+
+        The answer itself is already saved; an extraction problem is recorded on the
+        run (with its real error) and left to the bounded extraction retry.
+        """
+        if not (self.extraction_service and self.persistence_service and response_text.strip()):
+            return
+        run_id = run.id
+        try:
+            extraction = await self.extraction_service.extract(response_text)
+            await self.persistence_service.persist(run_id, extraction)
+        except Exception as exc:
+            logger.warning("brand_extraction_failed", extra={"event_data": {"ai_run_id": run_id, "error": str(exc)[:300]}})
+            await self._record_extraction(run, "failed", sanitize_body(str(exc))[:500])
+            return
+        await self._record_extraction(run, "completed", None)
+        try:
+            await self.run_repo.alert_new_competitor(prompt_id, [b.name for b in extraction.brands])
+            await self.run_repo.alert_rank_changes(run_id)
+        except Exception:
+            logger.exception("brand_alerts_failed", extra={"event_data": {"ai_run_id": run_id}})
+            await self._safe_rollback()
+
+    async def _record_extraction(self, run, status: str, error: str | None) -> None:
+        if not hasattr(self.run_repo, "update_extraction"):
+            return
+        try:
+            await self.run_repo.update_extraction(run, status, error)
+        except Exception:
+            logger.exception("extraction_status_update_failed", extra={"event_data": {"status": status}})
+            await self._safe_rollback()
+
+    async def _safe_rollback(self) -> None:
+        session = getattr(self.run_repo, "session", None)
+        if session is None:
+            return
+        try:
+            await session.rollback()
+        except Exception:
+            logger.exception("session_rollback_failed")
 
     @staticmethod
     def _model_result(model: str, status: str, attempts: int, error: str | None) -> dict:

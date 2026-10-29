@@ -61,7 +61,11 @@ async def _enqueue_retry_jobs(queue: PromptRunQueue, run_date) -> int:
 
 
 async def _retry_extractions() -> int:
-    """Retry failed brand extractions older than 1 hour."""
+    """Retry a small, bounded batch of failed brand extractions older than 1 hour.
+
+    Limits (batch size, max attempts, backoff) live in AIRunService.retry_failed_extractions
+    and come from settings, so this cannot hammer the extraction model every minute.
+    """
     from app.services.ai_run_service import AIRunService
     from app.repositories.ai_run_repository import AIRunRepository
     from app.services.brand_extraction_service import BrandExtractionService

@@ -23,6 +23,18 @@ DOMAIN_FORMAT_INSTRUCTION = (
 logger = logging.getLogger(__name__)
 EXTRACTION_RETRY_DELAYS = (300, 900, 1800)
 
+
+class _RunRef:
+    """Minimal run handle (id only) for status updates without loading ORM state."""
+
+    __slots__ = ("id", "extraction_status", "extraction_error", "processed_at")
+
+    def __init__(self, run_id: int):
+        self.id = run_id
+        self.extraction_status = None
+        self.extraction_error = None
+        self.processed_at = None
+
 class AIRunService:
     def __init__(
         self,
@@ -145,65 +157,89 @@ class AIRunService:
             await self._sync_dmr(prompt.id, model.model_key, run_date, "failed")
             return [self._result(run, model, error="request failed")]
 
+        prompt_id = prompt.id
+        model_id = model.id
+        model_key = model.model_key
         run = await self.run_repo.create(
-            prompt_id=prompt.id, ai_model_id=model.id, request_text=request_text,
+            prompt_id=prompt_id, ai_model_id=model_id, request_text=request_text,
             response_text=response_text, status="success", provider_used=provider_used, usage=usage,
         )
         if source != "retry":
-            await self.run_repo.complete_daily_run(prompt.id, model.id, run_date)
-        await self._sync_dmr(prompt.id, model.model_key, run_date, "success", run_id=run.id)
+            await self.run_repo.complete_daily_run(prompt_id, model_id, run_date)
+        await self._sync_dmr(prompt_id, model_key, run_date, "success", run_id=run.id)
         try:
             extraction = await self.extraction_service.extract(response_text)
             saved = await self.persistence_service.persist(run.id, extraction)
-            await self.run_repo.alert_new_competitor(prompt.id, [brand.name for brand in extraction.brands])
-            await self.run_repo.alert_rank_changes(run.id)
-            await self.run_repo.update_extraction(run, "completed")
-            return [self._result(
-                run, model, brands_found=len(extraction.brands),
-                new_brands=saved.new_brands, existing_brands=saved.existing_brands,
-            )]
         except AIProviderError as exc:
-            await self.run_repo.update_extraction(run, "failed", sanitize_body(str(exc))[:500])
+            await self._mark_extraction(run, "failed", sanitize_body(str(exc))[:500])
             await self._schedule_extraction_retry(run, run_attempt)
             return [self._result(run, model, error=self._public_error(exc))]
         except Exception as exc:
-            await self.run_repo.update_extraction(run, "failed", sanitize_body(str(exc))[:500])
+            await self._mark_extraction(run, "failed", sanitize_body(str(exc))[:500])
             await self._schedule_extraction_retry(run, run_attempt)
             return [self._result(run, model, error="extraction failed")]
+        await self._mark_extraction(run, "completed")
+        await self._send_brand_alerts(prompt_id, run.id, extraction)
+        return [self._result(
+            run, model, brands_found=len(extraction.brands),
+            new_brands=saved.new_brands, existing_brands=saved.existing_brands,
+        )]
+
+    async def _mark_extraction(self, run, status: str, error: str | None = None) -> None:
+        try:
+            await self.run_repo.update_extraction(run, status, error)
+        except Exception:
+            logger.exception("extraction_status_update_failed", extra={"event_data": {"status": status}})
+            await self._safe_rollback()
+
+    async def _send_brand_alerts(self, prompt_id: int, run_id: int, extraction) -> None:
+        try:
+            await self.run_repo.alert_new_competitor(prompt_id, [brand.name for brand in extraction.brands])
+            await self.run_repo.alert_rank_changes(run_id)
+        except Exception:
+            logger.exception("brand_alerts_failed", extra={"event_data": {"ai_run_id": run_id}})
+            await self._safe_rollback()
+
+    async def _safe_rollback(self) -> None:
+        session = getattr(self.run_repo, "session", None)
+        if session is None:
+            return
+        try:
+            await session.rollback()
+        except Exception:
+            logger.exception("session_rollback_failed")
 
     async def _schedule_extraction_retry(self, run, run_attempt: int) -> None:
         if self.retry_queue is None or run_attempt > len(EXTRACTION_RETRY_DELAYS):
             return
         delay_seconds = EXTRACTION_RETRY_DELAYS[run_attempt - 1]
-        job = PromptRunJob(
-            prompt_id=run.prompt_id,
-            ai_model_id=run.ai_model_id,
-            run_date=self._run_date(getattr(run, "created_at", None)).isoformat(),
-            source="extraction_retry",
-            run_attempt=run_attempt + 1,
-            ai_run_id=run.id,
-        )
         try:
+            job = PromptRunJob(
+                prompt_id=run.prompt_id,
+                ai_model_id=run.ai_model_id,
+                run_date=self._run_date(getattr(run, "created_at", None)).isoformat(),
+                source="extraction_retry",
+                run_attempt=run_attempt + 1,
+                ai_run_id=run.id,
+            )
             await self.retry_queue.enqueue_extraction_retry(job, delay_seconds)
         except Exception:
-            logger.exception("extraction_retry_enqueue_failed", extra={"event_data": {"ai_run_id": run.id, "run_attempt": run_attempt + 1}})
+            logger.exception("extraction_retry_enqueue_failed", extra={"event_data": {"run_attempt": run_attempt + 1}})
 
     async def retry_extraction(self, run_id: int, run_attempt: int = 1) -> None:
         run = await self.run_repo.get(run_id)
         if run is None or run.status != "success" or run.extraction_status == "completed" or not run.response_text:
             return
+        prompt_id = run.prompt_id
         try:
             extraction = await self.extraction_service.extract(run.response_text)
-            saved = await self.persistence_service.persist(run.id, extraction)
-            await self.run_repo.alert_new_competitor(run.prompt_id, [brand.name for brand in extraction.brands])
-            await self.run_repo.alert_rank_changes(run.id)
-            await self.run_repo.update_extraction(run, "completed")
-        except AIProviderError as exc:
-            await self.run_repo.update_extraction(run, "failed", sanitize_body(str(exc))[:500])
-            await self._schedule_extraction_retry(run, run_attempt)
+            await self.persistence_service.persist(run_id, extraction)
         except Exception as exc:
-            await self.run_repo.update_extraction(run, "failed", sanitize_body(str(exc))[:500])
+            await self._mark_extraction(run, "failed", sanitize_body(str(exc))[:500])
             await self._schedule_extraction_retry(run, run_attempt)
+            return
+        await self._mark_extraction(run, "completed")
+        await self._send_brand_alerts(prompt_id, run_id, extraction)
 
     async def _sync_dmr(self, prompt_id: int, model_key: str, run_date, status: str, run_id: int | None = None, error_provider: str | None = None, error_status: int | None = None, error_retryable: bool | None = None) -> None:
         try:
@@ -217,24 +253,56 @@ class AIRunService:
         except Exception:
             pass
 
-    async def retry_failed_extractions(self, older_than_hours: int = 1) -> list[dict]:
-        """Retry brand extraction for runs with failed extraction older than N hours."""
-        from datetime import datetime, timedelta, timezone
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
-        runs = await self.run_repo.get_failed_extractions(cutoff)
+    async def retry_failed_extractions(
+        self,
+        older_than_hours: float = 1,
+        *,
+        prompt_id: int | None = None,
+        limit: int | None = None,
+        max_attempts: int | None = None,
+        backoff_minutes: float | None = None,
+        alerts: bool = True,
+    ) -> list[dict]:
+        """Retry brand extraction for successful runs whose extraction failed.
+
+        Bounded on purpose: at most ``limit`` runs per call, each run at most
+        ``max_attempts`` times, and never again within ``backoff_minutes`` of its last
+        attempt. Each run is isolated, so one bad run cannot stop the batch.
+        """
+        from datetime import timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        max_attempts = settings.EXTRACTION_MAX_ATTEMPTS if max_attempts is None else max_attempts
+        backoff_minutes = settings.EXTRACTION_RETRY_BACKOFF_MINUTES if backoff_minutes is None else backoff_minutes
+        limit = settings.EXTRACTION_RETRY_BATCH_SIZE if limit is None else limit
+        if limit <= 0:
+            return []  # a zero batch size disables automatic retries
+        candidates = await self.run_repo.get_failed_extractions(
+            now - timedelta(hours=older_than_hours),
+            prompt_id=prompt_id,
+            max_attempts=max_attempts if max_attempts > 0 else None,
+            retry_before=now - timedelta(minutes=backoff_minutes) if backoff_minutes > 0 else None,
+            limit=limit,
+        )
         results = []
-        for run in runs:
+        for run_id, run_prompt_id, response_text in candidates:
+            run_ref = _RunRef(run_id)
             try:
-                extraction = await self.extraction_service.extract(run.response_text)
-                saved = await self.persistence_service.persist(run.id, extraction)
-                await self.run_repo.alert_new_competitor(run.prompt_id, [b.name for b in extraction.brands])
-                await self.run_repo.alert_rank_changes(run.id)
-                await self.run_repo.update_extraction(run, "completed")
-                results.append({"run_id": run.id, "status": "completed", "brands_found": len(extraction.brands)})
+                extraction = await self.extraction_service.extract(response_text)
+                saved = await self.persistence_service.persist(run_id, extraction)
             except Exception as exc:
                 safe_msg = sanitize_body(str(exc))[:500]
-                await self.run_repo.update_extraction(run, "failed", safe_msg)
-                results.append({"run_id": run.id, "status": "failed", "error": safe_msg})
+                logger.warning("extraction_retry_failed", extra={"event_data": {"ai_run_id": run_id, "error": safe_msg[:300]}})
+                await self._mark_extraction(run_ref, "failed", safe_msg)
+                results.append({"run_id": run_id, "status": "failed", "error": safe_msg})
+                continue
+            await self._mark_extraction(run_ref, "completed")
+            if alerts:
+                await self._send_brand_alerts(run_prompt_id, run_id, extraction)
+            results.append({
+                "run_id": run_id, "status": "completed", "brands_found": len(extraction.brands),
+                "saved_brands": getattr(saved, "run_brands", None), "skipped_brands": getattr(saved, "skipped_brands", 0),
+            })
         return results
 
     @staticmethod

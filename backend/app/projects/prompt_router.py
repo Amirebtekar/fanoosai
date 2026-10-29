@@ -299,7 +299,13 @@ async def retry_extraction(
                 BrandExtractionService(ai_service, session),
                 BrandPersistenceService(session),
             )
-            results = await run_service.retry_failed_extractions(older_than_hours=0)
+            results = await run_service.retry_failed_extractions(
+                older_than_hours=0,
+                prompt_id=prompt_id,
+                limit=20,
+                max_attempts=0,
+                backoff_minutes=0,
+            )
             return {"retried": len(results), "results": results}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

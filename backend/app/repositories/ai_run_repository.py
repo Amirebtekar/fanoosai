@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.exc import IntegrityError
 
 from app.database.models import AIRun, DailyPromptRun, Prompt, Alert, AlertRule, ProjectBrand, RunBrand
@@ -55,10 +56,33 @@ class AIRunRepository:
         return run
 
     async def update_extraction(self, run: AIRun, status: str, error: str | None = None) -> None:
-        run.extraction_status = status
-        run.extraction_error = error
-        run.processed_at = datetime.now(timezone.utc)
+        """Record an extraction outcome with a plain UPDATE by id.
+
+        Using an UPDATE (instead of mutating a possibly expired ORM object) keeps this
+        safe to call from error handlers, and every call counts one extraction attempt.
+        """
+        run_id = run.id
+        now = datetime.now(timezone.utc)
+        await self.session.execute(
+            update(AIRun)
+            .where(AIRun.id == run_id)
+            .values(
+                extraction_status=status,
+                extraction_error=error,
+                processed_at=now,
+                extraction_attempts=AIRun.extraction_attempts + 1,
+            )
+            .execution_options(synchronize_session=False)
+        )
         await self.session.commit()
+        values = {"extraction_status": status, "extraction_error": error, "processed_at": now}
+        if isinstance(run, AIRun):
+            # Reflect the new values without marking the object dirty or touching the DB.
+            for key, value in values.items():
+                set_committed_value(run, key, value)
+        else:
+            for key, value in values.items():
+                setattr(run, key, value)
 
     async def claim_daily_run(
         self, prompt_id: int, ai_model_id: int, run_date: date, source: str
@@ -154,19 +178,40 @@ class AIRunRepository:
         )
         return dict(rows.all())
 
-    async def get_failed_extractions(self, cutoff: datetime) -> list[AIRun]:
-        """Return runs with status='success' and extraction_status='failed' older than cutoff."""
-        result = await self.session.execute(
-            select(AIRun)
+    async def get_failed_extractions(
+        self,
+        cutoff: datetime,
+        *,
+        prompt_id: int | None = None,
+        max_attempts: int | None = None,
+        retry_before: datetime | None = None,
+        limit: int | None = None,
+    ) -> list[tuple[int, int, str]]:
+        """Return (id, prompt_id, response_text) of successful runs whose extraction failed.
+
+        Plain tuples are returned so callers never depend on ORM state that a later
+        rollback could expire. Newest runs come first because they matter most for
+        the dashboards; attempts and backoff keep retries bounded.
+        """
+        stmt = (
+            select(AIRun.id, AIRun.prompt_id, AIRun.response_text)
             .where(
                 AIRun.status == "success",
                 AIRun.extraction_status == "failed",
                 AIRun.response_text.isnot(None),
                 AIRun.created_at < cutoff,
             )
-            .order_by(AIRun.created_at)
+            .order_by(AIRun.created_at.desc(), AIRun.id.desc())
         )
-        return list(result.scalars().all())
+        if prompt_id is not None:
+            stmt = stmt.where(AIRun.prompt_id == prompt_id)
+        if max_attempts is not None:
+            stmt = stmt.where(AIRun.extraction_attempts < max_attempts)
+        if retry_before is not None:
+            stmt = stmt.where(or_(AIRun.processed_at.is_(None), AIRun.processed_at < retry_before))
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return [tuple(row) for row in (await self.session.execute(stmt)).all()]
 
     async def get_by_prompt(self, prompt_id: int) -> list[AIRun]:
         stmt = (
