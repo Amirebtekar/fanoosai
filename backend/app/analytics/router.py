@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import date, datetime, time, timedelta, timezone as dt_timezone
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -276,6 +277,36 @@ RADAR_MIN_SAMPLE = 5
 RADAR_MIN_SAMPLE_SHARE = 0.05
 
 
+def normalize_domain(domain: str | None) -> str:
+    return (domain or "").strip().casefold().rstrip(".")
+
+
+def is_owned_brand(brand_id: int, domain: str | None, owned_brand_ids: set[int], owned_domains: set[str]) -> bool:
+    return brand_id in owned_brand_ids or normalize_domain(domain) in owned_domains
+
+
+async def owned_brand_keys(project_id: int, session: AsyncSession) -> tuple[set[int], set[str]]:
+    owned = (await session.execute(
+        select(ProjectBrand.brand_id, ProjectBrand.domain)
+        .where(ProjectBrand.project_id == project_id, ProjectBrand.kind == "owned")
+    )).all()
+    owned_brand_ids = {brand_id for brand_id, _ in owned if brand_id is not None}
+    owned_domains = {normalize_domain(domain) for _, domain in owned if normalize_domain(domain)}
+    return owned_brand_ids, owned_domains
+
+
+def window_run_filter(project_id: int, start: datetime, end: datetime, prompt_id: int | None = None) -> list:
+    run_filter = [
+        Prompt.project_id == project_id,
+        AIRun.status == "success",
+        AIRun.created_at >= start,
+        AIRun.created_at < end,
+    ]
+    if prompt_id is not None:
+        run_filter.append(Prompt.id == prompt_id)
+    return run_filter
+
+
 def rank_score(average_rank: float | None) -> float:
     """Map an average rank to 0..100 (rank 1 -> 100, rank 10 or worse -> 0)."""
     if average_rank is None:
@@ -312,7 +343,7 @@ def build_competitor_radar(
             "prompt_coverage": pct(int(prompts or 0), total_prompts),
         }
         strength = round(sum(axes[key] * weight for key, weight in RADAR_STRENGTH_WEIGHTS.items()), 1)
-        is_owned = brand_id in owned_brand_ids or (domain or "").strip().casefold().rstrip(".") in owned_domains
+        is_owned = is_owned_brand(brand_id, domain, owned_brand_ids, owned_domains)
         brands.append(CompetitorRadarBrand(
             brand_id=brand_id, brand=name, domain=domain, is_owned=is_owned, strength=strength, **axes,
             appearances=appearances, average_rank=round(average, 2) if average is not None else None,
@@ -341,14 +372,7 @@ async def competitor_radar(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
-    run_filter = [
-        Prompt.project_id == project_id,
-        AIRun.status == "success",
-        AIRun.created_at >= start,
-        AIRun.created_at < end,
-    ]
-    if prompt_id is not None:
-        run_filter.append(Prompt.id == prompt_id)
+    run_filter = window_run_filter(project_id, start, end, prompt_id)
 
     total_runs, total_models, total_prompts = (await session.execute(
         select(
@@ -375,17 +399,107 @@ async def competitor_radar(
         .group_by(Brand.id, Brand.name, Brand.domain)
     )).all()
 
-    owned = (await session.execute(
-        select(ProjectBrand.brand_id, ProjectBrand.domain)
-        .where(ProjectBrand.project_id == project_id, ProjectBrand.kind == "owned")
-    )).all()
-    owned_brand_ids = {brand_id for brand_id, _ in owned if brand_id is not None}
-    owned_domains = {domain.strip().casefold().rstrip(".") for _, domain in owned if domain}
+    owned_brand_ids, owned_domains = await owned_brand_keys(project_id, session)
 
     return build_competitor_radar(
         rows,
         total_runs=int(total_runs or 0), total_models=int(total_models or 0), total_prompts=int(total_prompts or 0),
         owned_domains=owned_domains, owned_brand_ids=owned_brand_ids, limit=limit, days=days,
+    )
+
+
+PROMPT_LEADER_MIN_APPEARANCES = 2
+PROMPT_LEADER_MIN_SHARE = 0.2
+
+
+def prompt_leader_threshold(total_runs: int) -> int:
+    return max(PROMPT_LEADER_MIN_APPEARANCES, math.ceil(total_runs * PROMPT_LEADER_MIN_SHARE))
+
+
+def build_prompt_leaders(rows, totals: dict[int, int], owned_brand_ids: set[int], owned_domains: set[str]) -> list[PromptLeaderItem]:
+    """rows: (prompt_id, prompt, brand_id, brand, domain, appearances, average_rank)."""
+    prompts: dict[int, dict] = {}
+    for prompt_id, prompt, brand_id, brand, domain, appearances, average_rank in rows:
+        if average_rank is None:
+            continue
+        entry = prompts.setdefault(prompt_id, {"prompt": prompt, "brands": []})
+        entry["brands"].append(PromptLeaderBrand(
+            brand_id=brand_id, brand=brand, domain=domain,
+            average_rank=round(float(average_rank), 2), appearances=int(appearances or 0),
+        ))
+
+    items = []
+    for prompt_id, entry in prompts.items():
+        brands = entry["brands"]
+        total_runs = max([int(totals.get(prompt_id, 0) or 0), *(brand.appearances for brand in brands)])
+        threshold = prompt_leader_threshold(total_runs)
+        eligible = [brand for brand in brands if brand.appearances >= threshold] or brands
+        eligible.sort(key=lambda brand: (brand.average_rank, -brand.appearances, brand.brand))
+        leader = eligible[0]
+        positions = {brand.brand_id: index + 1 for index, brand in enumerate(eligible)}
+        owned = sorted(
+            (brand for brand in brands if is_owned_brand(brand.brand_id, brand.domain, owned_brand_ids, owned_domains)),
+            key=lambda brand: (positions.get(brand.brand_id, math.inf), brand.average_rank, -brand.appearances),
+        )
+        own = None
+        if owned:
+            position = positions.get(owned[0].brand_id)
+            own = PromptLeaderOwn(**owned[0].model_dump(), position=position, eligible=position is not None)
+        items.append(PromptLeaderItem(
+            prompt_id=prompt_id, prompt=entry["prompt"], total_runs=total_runs,
+            leader=leader, own=own, own_is_leader=own is not None and own.brand_id == leader.brand_id,
+        ))
+
+    def sort_key(item: PromptLeaderItem):
+        if item.own_is_leader:
+            return (2, 0, 0.0, item.prompt)
+        if item.own is None:
+            return (0, 0, 0.0, item.prompt)
+        position = item.own.position if item.own.position is not None else 10**6
+        return (1, -position, -(item.own.average_rank - item.leader.average_rank), item.prompt)
+
+    return sorted(items, key=sort_key)
+
+
+@router.get("/projects/{project_id}/prompt-leaders", response_model=PromptLeaders)
+async def prompt_leaders(
+    project_id: int,
+    days: int = Query(7),
+    prompt_id: int | None = Query(None, gt=0),
+    session: AsyncSession = Depends(get_session),
+    user: UserTable = Depends(fastapi_users.current_user()),
+):
+    await owned_project(project_id, session, user)
+    try:
+        start, end = model_performance_window(days)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    run_filter = window_run_filter(project_id, start, end, prompt_id)
+    totals = dict((await session.execute(
+        select(AIRun.prompt_id, func.count(AIRun.id))
+        .select_from(AIRun).join(Prompt, Prompt.id == AIRun.prompt_id)
+        .where(*run_filter)
+        .group_by(AIRun.prompt_id)
+    )).all())
+    rows = (await session.execute(
+        select(
+            Prompt.id, Prompt.text, Brand.id, Brand.name, Brand.domain,
+            func.count(distinct(RunBrand.ai_run_id)),
+            func.avg(RunBrand.rank),
+        )
+        .select_from(RunBrand)
+        .join(AIRun, AIRun.id == RunBrand.ai_run_id)
+        .join(Prompt, Prompt.id == AIRun.prompt_id)
+        .join(Brand, Brand.id == RunBrand.brand_id)
+        .where(*run_filter)
+        .group_by(Prompt.id, Prompt.text, Brand.id, Brand.name, Brand.domain)
+    )).all()
+    owned_brand_ids, owned_domains = await owned_brand_keys(project_id, session)
+    return PromptLeaders(
+        days=days,
+        has_own_brand=bool(owned_brand_ids or owned_domains),
+        items=build_prompt_leaders(rows, totals, owned_brand_ids, owned_domains),
     )
 
 

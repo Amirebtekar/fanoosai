@@ -221,6 +221,30 @@ class CompetitorRadar(BaseModel):
     total_prompts: int
     brands: list[CompetitorRadarBrand]
 
+class PromptLeaderBrand(BaseModel):
+    brand_id: int
+    brand: str
+    domain: str | None
+    average_rank: float
+    appearances: int
+
+class PromptLeaderOwn(PromptLeaderBrand):
+    position: int | None
+    eligible: bool
+
+class PromptLeaderItem(BaseModel):
+    prompt_id: int
+    prompt: str
+    total_runs: int
+    leader: PromptLeaderBrand
+    own: PromptLeaderOwn | None
+    own_is_leader: bool
+
+class PromptLeaders(BaseModel):
+    days: int
+    has_own_brand: bool
+    items: list[PromptLeaderItem]
+
 class RankReportRow(BaseModel):
     prompt_id: int
     prompt: str

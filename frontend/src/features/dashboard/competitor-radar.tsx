@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { RADAR_AXES, compareWithOwn, topThreeDetails, radarRows, radarSeries } from './competitor-radar-data'
 
 export function CompetitorRadarCard({ projectId, prompts }: { projectId: string; prompts: PromptRead[] }) {
-  const [days, setDays] = useState<7 | 30>(30)
+  const [days, setDays] = useState<7 | 30>(7)
   const [promptId, setPromptId] = useState('all')
   const [result, setResult] = useState<{ key: string; data?: CompetitorRadarData; error?: boolean } | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())

@@ -129,6 +129,15 @@ export function getCompetitorRadar(projectId: number, params: { days: 7 | 30; pr
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) })
   return authRequest('GET', `/projects/${projectId}/competitor-radar?${query}`)
 }
+export interface PromptLeaderBrand { brand_id: number; brand: string; domain: string | null; average_rank: number; appearances: number }
+export interface PromptLeaderOwn extends PromptLeaderBrand { position: number | null; eligible: boolean }
+export interface PromptLeaderItem { prompt_id: number; prompt: string; total_runs: number; leader: PromptLeaderBrand; own: PromptLeaderOwn | null; own_is_leader: boolean }
+export interface PromptLeaders { days: number; has_own_brand: boolean; items: PromptLeaderItem[] }
+export function getPromptLeaders(projectId: number, params: { days: 7 | 30; prompt_id?: number }): Promise<PromptLeaders> {
+  const query = new URLSearchParams({ days: String(params.days) })
+  if (params.prompt_id !== undefined) query.set('prompt_id', String(params.prompt_id))
+  return authRequest('GET', `/projects/${projectId}/prompt-leaders?${query}`)
+}
 export function listAlerts(projectId: number): Promise<AlertItem[]> { return authRequest('GET', '/projects/' + projectId + '/alerts') }
 export function addAlertRule(projectId: number, kind: string, cooldown_hours = 24): Promise<unknown> { return authRequest('POST', `/projects/${projectId}/alert-rules?kind=${kind}&cooldown_hours=${cooldown_hours}`) }
 export function readAlert(projectId: number, alertId: number): Promise<void> { return authRequest('POST', `/projects/${projectId}/alerts/${alertId}/read`) }
