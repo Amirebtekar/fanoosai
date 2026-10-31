@@ -3,7 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { Download, FolderKanban, BarChart3, LogOut, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
-import { getAllBrandRankSummary, getBrandRankSummary, getCompetitorRadar, getCurrentUser, getPromptBrandTrends, getPromptLeaders, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type BrandTrend, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
+import { getAllBrandRankSummary, getBrandRankSummary, getCompetitorRadar, getCurrentUser, getPromptBrandTrends, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type BrandTrend, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -193,12 +193,11 @@ function BrandRankReport() {
     const selectedBrand = brandId === 'all' ? 'همهٔ برندها' : brands.find(brand => String(brand.brand_id) === brandId)?.name ?? brandId
     setExporting('pdf')
     try {
-      const [rows, radar, leaders] = await Promise.all([
+      const [rows, radar] = await Promise.all([
         getAllBrandRankSummary(Number(projectId), filters),
         getCompetitorRadar(Number(projectId), { days, prompt_id: filters.prompt_id, limit: 6 }).catch(() => null),
-        getPromptLeaders(Number(projectId), { days, prompt_id: filters.prompt_id }).catch(() => null),
       ])
-      const html = brandRankSummaryPrintHtml(rows, { project: selectedProject, prompt: selectedPrompt, brand: selectedBrand, days }, { radar: radar?.brands, leaders })
+      const html = brandRankSummaryPrintHtml(rows, { project: selectedProject, prompt: selectedPrompt, brand: selectedBrand, days }, { radar: radar?.brands })
       printWindow.document.open()
       printWindow.document.write(html)
       printWindow.document.close()

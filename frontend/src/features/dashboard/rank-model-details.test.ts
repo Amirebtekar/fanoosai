@@ -83,46 +83,32 @@ describe('dashboard brand rank model details', () => {
     expect(html).not.toContain('<script>alert(1)</script>')
   })
 
-  it('appends the radar and prompt leadership after the summary, escaped', () => {
+  it('appends the radar after the summary, escaped, without the prompt leadership section', () => {
     const radar = [
       { brand_id: 1, brand: '<b>arvan</b>', domain: null, is_owned: false, strength: 80, visibility: 90, rank_score: 90, top_three: 95, model_coverage: 100, prompt_coverage: 100, appearances: 30, average_rank: 1.1, top_three_count: 28, models: 5, prompts: 1 },
       { brand_id: 2, brand: 'پارس‌پک', domain: 'parspack.com', is_owned: true, strength: 50, visibility: 70, rank_score: 60, top_three: 40, model_coverage: 80, prompt_coverage: 100, appearances: 25, average_rank: 3.2, top_three_count: 10, models: 4, prompts: 1 },
     ]
-    const leader = { brand_id: 1, brand: '<b>arvan</b>', domain: null, average_rank: 1.1, appearances: 30 }
-    const leaders = {
-      days: 7,
-      has_own_brand: true,
-      items: [
-        { prompt_id: 29, prompt: 'CDN <i>x</i>', total_runs: 32, leader, own: { brand_id: 2, brand: 'پارس‌پک', domain: 'parspack.com', average_rank: 3.2, appearances: 25, position: 3, eligible: true }, own_is_leader: false },
-        { prompt_id: 30, prompt: 'hosting', total_runs: 10, leader, own: null, own_is_leader: false },
-        { prompt_id: 31, prompt: 'vps', total_runs: 20, leader: { ...leader, brand_id: 2, brand: 'پارس‌پک' }, own: { brand_id: 2, brand: 'پارس‌پک', domain: null, average_rank: 1.5, appearances: 18, position: 1, eligible: true }, own_is_leader: true },
-      ],
-    }
     const html = brandRankSummaryPrintHtml([
       { prompt_id: 1, prompt: 'p', brand_id: 2, brand: 'b', domain: null, average_rank: 1, observations: 3 },
-    ], { project: 'x', prompt: 'y', brand: 'z', days: 7 }, { radar, leaders })
+    ], { project: 'x', prompt: 'y', brand: 'z', days: 7 }, { radar })
 
     expect(html.indexOf('</table>')).toBeLessThan(html.indexOf('<svg'))
     expect(html.match(/<polygon data-brand=/g)).toHaveLength(2)
     expect(html).toContain('page-break-before:always')
     expect(html).not.toContain('<b>arvan</b>')
-    expect(html).not.toContain('<i>x</i>')
     expect(html).toContain('&lt;b&gt;arvan&lt;/b&gt;')
-    expect(html).toContain('<td>CDN &lt;i&gt;x&lt;/i&gt;</td><td>&lt;b&gt;arvan&lt;/b&gt;</td><td>1.10</td><td>رتبه 3 از برندهای پرتکرار</td><td>3.20</td>')
-    expect(html).toContain('<td>hosting</td><td>&lt;b&gt;arvan&lt;/b&gt;</td><td>1.10</td><td>در پاسخ‌ها دیده نشده‌اید</td><td>—</td>')
-    expect(html).toContain('<td>vps</td><td>1.50</td><td>18 از 20 پاسخ</td>')
-    expect(html).toContain('اول نیستید (2)')
-    expect(html).toContain('اول هستید (1)')
     expect(html).toContain('<td>پارس‌پک (شما)</td><td>50</td><td>70</td><td>3.20</td><td>40 (10 از 25)</td>')
+    expect(html).not.toContain('جایگاه برند شما در پرامپت‌ها')
+    expect(html).not.toContain('اول نیستید')
+    expect(html).not.toContain('اول هستید')
   })
 
-  it('omits optional sections when data is missing or empty', () => {
-    const html = brandRankSummaryPrintHtml([], { project: 'x', prompt: 'y', brand: 'z', days: 30 }, { radar: [], leaders: null })
-    expect(html).not.toContain('<svg')
-    expect(html).not.toContain('page-section"')
-    const hint = brandRankSummaryPrintHtml([], { project: 'x', prompt: 'y', brand: 'z', days: 30 }, { leaders: { days: 30, has_own_brand: false, items: [] } })
-    expect(hint).toContain('برند خود را در تنظیمات پروژه تعریف کنید.')
-    expect(hint).not.toContain('<svg')
+  it('omits the radar section when data is missing or empty', () => {
+    for (const extras of [{ radar: [] }, { radar: null }, {}]) {
+      const html = brandRankSummaryPrintHtml([], { project: 'x', prompt: 'y', brand: 'z', days: 30 }, extras)
+      expect(html).not.toContain('<svg')
+      expect(html).not.toContain('page-section"')
+    }
   })
 
   it('labels observations against the total number of answers', () => {
