@@ -12,7 +12,7 @@ import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { CompetitorRadarCard } from './competitor-radar'
 import { CostSummaryCard } from './cost-summary'
-import { brandRankSummaryCsv, brandRankSummaryPrintHtml, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays, waitForPrintFonts } from './rank-model-details'
+import { brandRankSummaryCsv, brandRankSummaryPrintHtml, effectiveRankCoefficient, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays, waitForPrintFonts } from './rank-model-details'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -268,9 +268,9 @@ function BrandRankReport() {
         {projectId && !current && <Skeleton className='h-32 w-full bg-accent' />}
         {current && !current.error && (current.items.length ? (
           <div className='overflow-x-auto border border-border/70'>
-            <table className='rank-summary-table w-full min-w-[640px] text-right text-sm'>
+            <table className='rank-summary-table w-full min-w-[740px] text-right text-sm'>
               <thead className='border-b-2 border-border bg-muted/30 text-muted-text'>
-                <tr><th scope='col' className='p-2'>پرامپت</th><th scope='col' className='p-2'>برند</th><th scope='col' className='p-2'>میانگین رتبه</th><th scope='col' className='p-2'>تعداد مشاهده</th></tr>
+                <tr><th scope='col' className='p-2'>پرامپت</th><th scope='col' className='p-2'>برند</th><th scope='col' className='p-2'>میانگین رتبه</th><th scope='col' className='p-2'>تعداد مشاهده</th><th scope='col' className='p-2'>ضریب رتبه موثر</th></tr>
               </thead>
               <tbody>
                 {current.items.map((item, index) => {
@@ -289,9 +289,10 @@ function BrandRankReport() {
                       <td className='p-2 tabular-nums' title={item.total_runs == null ? undefined : observationTotal(item) > item.observations ? `در ${(observationTotal(item) - item.observations).toLocaleString('fa-IR')} پاسخ از ${observationTotal(item).toLocaleString('fa-IR')} پاسخ این برند نیامده است` : 'در همهٔ پاسخ‌ها آمده است'}>
                         {observationLabel(item)}
                       </td>
+                      <td className='p-2 tabular-nums' title='(۱ ÷ درصد مشاهده) × میانگین رتبه'>{effectiveRankCoefficient(item)?.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) ?? '—'}</td>
                     </tr>
                     {isExpanded && <tr key={`${detailKey}-details`} className='brand-rank-details-row border-b-2 border-border bg-muted/10'>
-                      <td colSpan={4} className='p-3'>
+                      <td colSpan={5} className='p-3'>
                         {trendResult?.key !== detailKey ? <Skeleton className='h-20 w-full bg-accent' /> : trendResult.error ? <p role='alert' className='py-3 text-sm font-bold text-red-600'>دریافت جزئیات مدل‌ها ممکن نشد.</p> : details.length === 0 ? <p className='py-3 text-sm text-muted-text'>برای این برند جزئیاتی در این بازه نیست.</p> : (
                           <>
                             <div className='rank-model-details-scroll overflow-x-auto border border-border/70 bg-card'>

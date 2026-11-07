@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { PRINT_FONT_URL, brandRankSummaryCsv, brandRankSummaryPrintHtml, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays, waitForPrintFonts } from './rank-model-details'
+import { PRINT_FONT_URL, brandRankSummaryCsv, brandRankSummaryPrintHtml, effectiveRankCoefficient, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays, waitForPrintFonts } from './rank-model-details'
 
 describe('print font', () => {
   it('loads Vazirmatn and uses it for body and chart text', () => {
@@ -109,6 +109,17 @@ describe('dashboard brand rank model details', () => {
       expect(html).not.toContain('<svg')
       expect(html).not.toContain('page-section"')
     }
+  })
+
+  it('computes the effective rank coefficient as rank divided by the view share', () => {
+    // (1 / '34 از 35') * 1.5 ≈ 1.54 — a high share barely moves the rank
+    expect(effectiveRankCoefficient({ average_rank: 1.5, observations: 34, total_runs: 35 })).toBe(1.54)
+    // (1 / 50%) * 3 = 6 — half the answers doubles the rank
+    expect(effectiveRankCoefficient({ average_rank: 3, observations: 5, total_runs: 10 })).toBe(6)
+    // without a known total the share is full, so the rank stands on its own
+    expect(effectiveRankCoefficient({ average_rank: 2.4, observations: 6 })).toBe(2.4)
+    // no observation at all leaves the coefficient undefined
+    expect(effectiveRankCoefficient({ average_rank: 1.8, observations: 0 })).toBeNull()
   })
 
   it('labels observations against the total number of answers', () => {

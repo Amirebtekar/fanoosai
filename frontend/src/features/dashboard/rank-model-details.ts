@@ -59,6 +59,16 @@ export function observationLabel(item: Pick<BrandRankSummaryItem, 'observations'
   return `${seen} از ${observationTotal(item).toLocaleString(locale)}`
 }
 
+/**
+ * Effective rank coefficient: (1 / view share) × average rank — the rank as if
+ * the brand had appeared in every answer. Null when there is nothing to divide by.
+ */
+export function effectiveRankCoefficient(item: Pick<BrandRankSummaryItem, 'average_rank' | 'observations' | 'total_runs'>): number | null {
+  const share = item.observations / observationTotal(item)
+  if (!share) return null
+  return Math.round((item.average_rank / share) * 100) / 100
+}
+
 export function brandRankSummaryCsv(items: BrandRankSummaryItem[]): string {
   const headers = ['پرامپت', 'برند', 'دامنه', 'میانگین رتبه', 'تعداد مشاهده', 'تعداد کل پاسخ‌ها']
   const values = items.map(item => [item.prompt, item.brand, item.domain ?? '', item.average_rank.toFixed(2), item.observations, observationTotal(item)])
