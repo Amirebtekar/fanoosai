@@ -65,7 +65,7 @@ export function observationLabel(item: Pick<BrandRankSummaryItem, 'observations'
  */
 export function effectiveRankCoefficient(item: Pick<BrandRankSummaryItem, 'average_rank' | 'observations' | 'total_runs'>): number | null {
   const share = item.observations / observationTotal(item)
-  if (!share) return null
+  if (!share || item.average_rank == null) return null
   return Math.round((item.average_rank / share) * 100) / 100
 }
 
