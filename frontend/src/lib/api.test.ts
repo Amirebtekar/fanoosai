@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { adminSearchQueriesExportUrl, ApiError, getAllBrandRankSummary, getErrorMessage, getProjectSearchedSites, getProjectSearchQueries, listAdminSearchQueries } from './api'
+import { adminSearchQueriesExportUrl, ApiError, getAllBrandRankSummary, getCompetitorRadar, getErrorMessage, getPromptBrandTrends, getProjectSearchedSites, getProjectSearchQueries, listAdminSearchQueries } from './api'
 
 describe('search query endpoints', () => {
   it('builds project and admin URLs with only the given filters', async () => {
@@ -57,6 +57,56 @@ describe('getAllBrandRankSummary', () => {
       expect(requestedUrls[1]).toContain('page=2')
     } finally {
       globalThis.fetch = originalFetch
+    }
+  })
+})
+
+describe('model filter', () => {
+  const stubFetch = (body: unknown) => {
+    const originalFetch = globalThis.fetch
+    const requestedUrls: string[] = []
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) } as Response
+    }) as typeof fetch
+    return { requestedUrls, restore: () => { globalThis.fetch = originalFetch } }
+  }
+
+  it('sends ai_model_id for the brand rank summary and omits it when unset', async () => {
+    const { requestedUrls, restore } = stubFetch({ items: [], page: 1, page_size: 100, total: 0 })
+    try {
+      await getAllBrandRankSummary(10, { days: 30, prompt_id: 33, brand_id: 2, ai_model_id: 5 })
+      await getAllBrandRankSummary(10, { days: 7, ai_model_id: undefined })
+      expect(requestedUrls[0]).toMatch(/\/projects\/10\/brand-rank-summary\?days=30&prompt_id=33&brand_id=2&ai_model_id=5&page=1&page_size=100$/)
+      expect(requestedUrls[1]).not.toContain('ai_model_id')
+    } finally {
+      restore()
+    }
+  })
+
+  it('sends ai_model_id for the competitor radar and trends', async () => {
+    const { requestedUrls, restore } = stubFetch({ days: 7, total_runs: 0, total_models: 0, total_prompts: 0, brands: [], prompt_id: 1, items: [] })
+    try {
+      await getCompetitorRadar(10, { days: 7, prompt_id: 33, ai_model_id: 5, limit: 6 })
+      await getCompetitorRadar(10, { days: 7, limit: 6 })
+      await getPromptBrandTrends(33, { brand_ids: [2], ai_model_id: 5 })
+      expect(requestedUrls[0]).toMatch(/\/projects\/10\/competitor-radar\?days=7&prompt_id=33&ai_model_id=5&limit=6$/)
+      expect(requestedUrls[1]).not.toContain('ai_model_id')
+      expect(requestedUrls[2]).toContain('ai_model_id=5')
+      expect(requestedUrls[2]).toContain('brand_ids=2')
+    } finally {
+      restore()
+    }
+  })
+
+  it('accepts rows with a null average rank', async () => {
+    const row = { prompt_id: 1, prompt: 'p', brand_id: 2, brand: 'b', domain: null, average_rank: null, observations: 0, total_runs: 12 }
+    const { restore } = stubFetch({ items: [row], page: 1, page_size: 100, total: 1 })
+    try {
+      const items = await getAllBrandRankSummary(10, { days: 7, brand_id: 2 })
+      expect(items).toEqual([row])
+    } finally {
+      restore()
     }
   })
 })

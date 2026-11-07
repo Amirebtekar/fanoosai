@@ -1,5 +1,5 @@
 import { addDays, format } from 'date-fns'
-import type { BrandRankSummaryItem, BrandTrend, CompetitorRadarBrand } from '@/lib/api'
+import type { BrandRankSummaryItem, BrandTrend, CompetitorRadarBrand, ModelBrandDetail, PromptRead } from '@/lib/api'
 import { escapeHtml, radarSvg } from './competitor-radar-data'
 
 export function tehranReportDays(days: 7 | 30, now = new Date()): string[] {
@@ -48,6 +48,12 @@ export function summarizeModelRanks(items: BrandTrend[], dayKeys: string[]) {
 }
 
 /** Total answers the brand could have appeared in (never below its observations). */
+export function summarizeModelCoverage(items: ModelBrandDetail[], dayKeys: string[]) {
+  const ranks = summarizeModelRanks(items.map(item => ({ ...item, brand_id: 0, brand: '', trend: 'flat' as const })), dayKeys)
+  const coverage = new Map(items.map(item => [item.ai_model_id, item]))
+  return ranks.map(rank => ({ ...rank, ...coverage.get(rank.ai_model_id), observations: coverage.get(rank.ai_model_id)?.points.length ?? 0 }))
+}
+
 export function observationTotal(item: Pick<BrandRankSummaryItem, 'observations' | 'total_runs'>): number {
   return Math.max(item.total_runs ?? item.observations, item.observations)
 }
@@ -69,9 +75,23 @@ export function effectiveRankCoefficient(item: Pick<BrandRankSummaryItem, 'avera
   return Math.round((item.average_rank / share) * 100) / 100
 }
 
+export function projectModelOptions(prompts: Pick<PromptRead, 'models'>[]): { id: number; name: string }[] {
+  const byId = new Map<number, string>()
+  for (const prompt of prompts) {
+    for (const model of prompt.models ?? []) if (!byId.has(model.id)) byId.set(model.id, model.name)
+  }
+  return [...byId].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id)
+}
+
+export const NOT_SEEN_LABEL = 'در این بازه دیده نشده'
+
+export function isNotSeen(item: Pick<BrandRankSummaryItem, 'observations' | 'average_rank'>): boolean {
+  return item.observations === 0 || item.average_rank == null
+}
+
 export function brandRankSummaryCsv(items: BrandRankSummaryItem[]): string {
   const headers = ['پرامپت', 'برند', 'دامنه', 'میانگین رتبه', 'تعداد مشاهده', 'تعداد کل پاسخ‌ها']
-  const values = items.map(item => [item.prompt, item.brand, item.domain ?? '', item.average_rank.toFixed(2), item.observations, observationTotal(item)])
+  const values = items.map(item => [item.prompt, item.brand, item.domain ?? '', item.average_rank == null ? '' : item.average_rank.toFixed(2), item.observations, observationTotal(item)])
   const escape = (value: string | number) => {
     const text = String(value)
     const safeText = /^\s*[=+\-@]/.test(text) ? `'${text}` : text
@@ -111,13 +131,14 @@ export async function waitForPrintFonts(doc: Document, timeoutMs = 4000): Promis
 
 export function brandRankSummaryPrintHtml(
   items: BrandRankSummaryItem[],
-  filters: { project: string; prompt: string; brand: string; days: number },
+  filters: { project: string; prompt: string; brand: string; days: number; model?: string },
   extras: { radar?: CompetitorRadarBrand[] | null } = {},
 ): string {
   const escape = escapeHtml
-  const rows = items.map(item => `<tr><td>${escape(item.prompt)}</td><td>${escape(item.brand)}</td><td dir="ltr">${escape(item.domain ?? '—')}</td><td>${escape(item.average_rank.toFixed(2))}</td><td>${escape(observationLabel(item, 'en-US'))}</td></tr>`).join('')
+  const rows = items.map(item => `<tr><td>${escape(item.prompt)}</td><td>${escape(item.brand)}</td><td dir="ltr">${escape(item.domain ?? '—')}</td><td>${escape(item.average_rank == null ? '—' : item.average_rank.toFixed(2))}</td><td>${escape(isNotSeen(item) ? `${observationLabel(item, 'en-US')} (${NOT_SEEN_LABEL})` : observationLabel(item, 'en-US'))}</td></tr>`).join('')
+  const modelFilter = filters.model === undefined ? '' : `<span>مدل: ${escape(filters.model)}</span>`
   const sections = extras.radar ? radarPrintSection(extras.radar) : ''
-  return `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>گزارش رتبه برندها</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${PRINT_FONT_URL}"><style>@page{size:landscape;margin:12mm}body{font-family:${PRINT_FONT_FAMILY};color:#111;margin:0}svg text{font-family:${PRINT_FONT_FAMILY}}h1{font-size:20px;margin:0 0 12px}h2{font-size:17px;margin:0 0 10px}h3{font-size:13px;margin:16px 0 8px}p{font-size:12px;margin:4px 0 16px}.filters{display:flex;gap:18px;flex-wrap:wrap;font-size:11px;margin-bottom:14px}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #777;padding:6px;text-align:right}th{background:#eee}tbody tr{break-inside:avoid}.page-section{break-before:page;page-break-before:always}.radar{display:flex;justify-content:center;margin-bottom:14px}.radar svg{max-width:100%;height:auto;max-height:150mm;break-inside:avoid}</style></head><body><h1>گزارش رتبه برندها</h1><div class="filters"><span>پروژه: ${escape(filters.project)}</span><span>پرامپت: ${escape(filters.prompt)}</span><span>برند: ${escape(filters.brand)}</span><span>بازه: ${escape(filters.days)} روز</span></div><table><thead><tr>${['پرامپت','برند','دامنه','میانگین رتبه','تعداد مشاهده'].map(label => `<th>${label}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>${sections}</body></html>`
+  return `<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>گزارش رتبه برندها</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${PRINT_FONT_URL}"><style>@page{size:landscape;margin:12mm}body{font-family:${PRINT_FONT_FAMILY};color:#111;margin:0}svg text{font-family:${PRINT_FONT_FAMILY}}h1{font-size:20px;margin:0 0 12px}h2{font-size:17px;margin:0 0 10px}h3{font-size:13px;margin:16px 0 8px}p{font-size:12px;margin:4px 0 16px}.filters{display:flex;gap:18px;flex-wrap:wrap;font-size:11px;margin-bottom:14px}table{width:100%;border-collapse:collapse;font-size:10px}th,td{border:1px solid #777;padding:6px;text-align:right}th{background:#eee}tbody tr{break-inside:avoid}.page-section{break-before:page;page-break-before:always}.radar{display:flex;justify-content:center;margin-bottom:14px}.radar svg{max-width:100%;height:auto;max-height:150mm;break-inside:avoid}</style></head><body><h1>گزارش رتبه برندها</h1><div class="filters"><span>پروژه: ${escape(filters.project)}</span><span>پرامپت: ${escape(filters.prompt)}</span><span>برند: ${escape(filters.brand)}</span>${modelFilter}<span>بازه: ${escape(filters.days)} روز</span></div><table><thead><tr>${['پرامپت','برند','دامنه','میانگین رتبه','تعداد مشاهده'].map(label => `<th>${label}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>${sections}</body></html>`
 }
 
 export function tehranBounds(dayKeys: string[]) {

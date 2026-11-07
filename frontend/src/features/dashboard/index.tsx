@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Download, FolderKanban, BarChart3, LogOut, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
-import { getAllBrandRankSummary, getBrandRankSummary, getCompetitorRadar, getCurrentUser, getPromptBrandTrends, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type BrandTrend, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
+import { getAllBrandRankSummary, getBrandRankSummary, getCompetitorRadar, getCurrentUser, getPromptModelBrandDetails, listObservedBrands, listProjects, listPrompts, logout, type BrandRankSummaryItem, type ModelBrandDetail, type ObservedBrand, type ProjectRead, type PromptRead } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -12,7 +12,7 @@ import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { CompetitorRadarCard } from './competitor-radar'
 import { CostSummaryCard } from './cost-summary'
-import { brandRankSummaryCsv, brandRankSummaryPrintHtml, effectiveRankCoefficient, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays, waitForPrintFonts } from './rank-model-details'
+import { NOT_SEEN_LABEL, brandRankSummaryCsv, brandRankSummaryPrintHtml, effectiveRankCoefficient, isNotSeen, observationLabel, observationTotal, projectModelOptions, summarizeModelCoverage, tehranReportDays, waitForPrintFonts } from './rank-model-details'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -92,11 +92,12 @@ function BrandRankReport() {
   const [brands, setBrands] = useState<ObservedBrand[]>([])
   const [promptId, setPromptId] = useState('all')
   const [brandId, setBrandId] = useState('all')
+  const [modelId, setModelId] = useState('all')
   const [days, setDays] = useState<7 | 30>(7)
   const [result, setResult] = useState<{ key: string; items: BrandRankSummaryItem[]; error?: boolean } | null>(null)
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
   const [expandedKey, setExpandedKey] = useState('')
-  const [trendResult, setTrendResult] = useState<{ key: string; items: BrandTrend[]; error?: boolean } | null>(null)
+  const [trendResult, setTrendResult] = useState<{ key: string; items: ModelBrandDetail[]; error?: boolean } | null>(null)
   const [projectsLoaded, setProjectsLoaded] = useState(false)
 
   useEffect(() => {
@@ -117,19 +118,23 @@ function BrandRankReport() {
     if (projectId) listObservedBrands(Number(projectId)).then(setBrands).catch(() => setBrands([]))
   }, [projectId])
 
-  const requestKey = `${projectId}:${promptId}:${brandId}:${days}`
+  const modelOptions = useMemo(() => projectModelOptions(prompts), [prompts])
+  const modelFilter = modelId === 'all' ? undefined : Number(modelId)
+
+  const requestKey = `${projectId}:${promptId}:${brandId}:${modelId}:${days}`
   useEffect(() => {
     if (!projectId) return
     getBrandRankSummary(Number(projectId), {
       days,
       prompt_id: promptId === 'all' ? undefined : Number(promptId),
       brand_id: brandId === 'all' ? undefined : Number(brandId),
+      ai_model_id: modelFilter,
       page: 1,
       page_size: 100,
     })
       .then(page => setResult({ key: requestKey, items: page.items }))
       .catch(() => setResult({ key: requestKey, items: [], error: true }))
-  }, [projectId, promptId, brandId, days, requestKey])
+  }, [projectId, promptId, brandId, modelFilter, days, requestKey])
 
   const current = result?.key === requestKey ? result : null
   const dayKeys = tehranReportDays(days)
@@ -141,11 +146,10 @@ function BrandRankReport() {
       return
     }
     setExpandedKey(key)
-    const bounds = tehranBounds(dayKeys)
-    getPromptBrandTrends(item.prompt_id, {
-      brand_ids: [item.brand_id],
-      start_date: bounds.start_date,
-      end_date: bounds.end_date,
+    getPromptModelBrandDetails(item.prompt_id, {
+      brand_id: item.brand_id,
+      days,
+      ai_model_id: modelFilter,
     })
       .then(trends => setTrendResult({ key, items: trends.items }))
       .catch(() => setTrendResult({ key, items: [], error: true }))
@@ -155,12 +159,13 @@ function BrandRankReport() {
     days,
     prompt_id: promptId === 'all' ? undefined : Number(promptId),
     brand_id: brandId === 'all' ? undefined : Number(brandId),
+    ai_model_id: modelFilter,
   })
 
   const downloadCsv = async () => {
     if (!projectId || exporting) return
     const filters = reportFilters()
-    const fileName = `brand-ranks-project-${projectId}-${days}d.csv`
+    const fileName = `brand-ranks-project-${projectId}${modelFilter === undefined ? '' : `-model-${modelFilter}`}-${days}d.csv`
     setExporting('csv')
     try {
       const rows = await getAllBrandRankSummary(Number(projectId), filters)
@@ -191,13 +196,14 @@ function BrandRankReport() {
     const selectedProject = projects.find(project => String(project.id) === projectId)?.name ?? projectId
     const selectedPrompt = promptId === 'all' ? 'همهٔ پرامپت‌ها' : prompts.find(prompt => String(prompt.id) === promptId)?.text ?? promptId
     const selectedBrand = brandId === 'all' ? 'همهٔ برندها' : brands.find(brand => String(brand.brand_id) === brandId)?.name ?? brandId
+    const selectedModel = modelFilter === undefined ? undefined : modelOptions.find(model => String(model.id) === modelId)?.name ?? modelId
     setExporting('pdf')
     try {
       const [rows, radar] = await Promise.all([
         getAllBrandRankSummary(Number(projectId), filters),
-        getCompetitorRadar(Number(projectId), { days, prompt_id: filters.prompt_id, limit: 6 }).catch(() => null),
+        getCompetitorRadar(Number(projectId), { days, prompt_id: filters.prompt_id, ai_model_id: filters.ai_model_id, limit: 6 }).catch(() => null),
       ])
-      const html = brandRankSummaryPrintHtml(rows, { project: selectedProject, prompt: selectedPrompt, brand: selectedBrand, days }, { radar: radar?.brands })
+      const html = brandRankSummaryPrintHtml(rows, { project: selectedProject, prompt: selectedPrompt, brand: selectedBrand, days, model: selectedModel ?? 'همهٔ مدل‌ها' }, { radar: radar?.brands })
       printWindow.document.open()
       printWindow.document.write(html)
       printWindow.document.close()
@@ -219,7 +225,7 @@ function BrandRankReport() {
       <CardHeader className='flex flex-row flex-wrap items-start justify-between gap-3'>
         <div className='space-y-2'>
           <CardTitle className='text-lg font-black'>گزارش رتبه برندها</CardTitle>
-          <CardDescription>میانگین رتبهٔ برندها در همهٔ مدل‌ها، طی ۷ یا ۳۰ روز گذشته؛ رتبهٔ کمتر بهتر است.</CardDescription>
+          <CardDescription>میانگین رتبهٔ برندها در همهٔ مدل‌ها (یا مدل انتخاب‌شده)، طی ۷ یا ۳۰ روز گذشته؛ رتبهٔ کمتر بهتر است. با انتخاب یک برند، پرامپت‌هایی که برند در آن‌ها دیده نشده هم نمایش داده می‌شوند.</CardDescription>
         </div>
         <div className='flex gap-2'>
           <Button type='button' variant='outline' size='sm' disabled={!current?.items.length || Boolean(current.error) || Boolean(exporting)} onClick={() => void downloadCsv()}><Download className='me-2 size-4' aria-hidden='true' />{exporting === 'csv' ? 'در حال آماده‌سازی...' : 'دانلود CSV'}</Button>
@@ -227,9 +233,9 @@ function BrandRankReport() {
         </div>
       </CardHeader>
       <CardContent className='space-y-4'>
-        <div className='brand-rank-filters grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+        <div className='brand-rank-filters grid gap-3 sm:grid-cols-2 xl:grid-cols-5'>
           <label className='grid gap-1.5 text-sm font-bold'>پروژه
-            <Select value={projectId} onValueChange={value => { setProjectId(value); setPromptId('all'); setBrandId('all') }} disabled={!projects.length}>
+            <Select value={projectId} onValueChange={value => { setProjectId(value); setPromptId('all'); setBrandId('all'); setModelId('all') }} disabled={!projects.length}>
               <SelectTrigger className='border-border bg-background'><SelectValue placeholder='انتخاب پروژه' /></SelectTrigger>
               <SelectContent>{projects.map(project => <SelectItem key={project.id} value={String(project.id)}>{project.name}</SelectItem>)}</SelectContent>
             </Select>
@@ -249,6 +255,15 @@ function BrandRankReport() {
               <SelectContent>
                 <SelectItem value='all'>همهٔ برندها</SelectItem>
                 {brands.map(brand => <SelectItem key={brand.brand_id} value={String(brand.brand_id)}>{brand.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className='grid gap-1.5 text-sm font-bold'>مدل
+            <Select value={modelId} onValueChange={setModelId} disabled={!projectId}>
+              <SelectTrigger className='border-border bg-background'><SelectValue placeholder='همهٔ مدل‌ها' /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>همهٔ مدل‌ها</SelectItem>
+                {modelOptions.map(model => <SelectItem key={model.id} value={String(model.id)}>{model.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </label>
@@ -276,7 +291,7 @@ function BrandRankReport() {
                 {current.items.map((item, index) => {
                   const detailKey = `${requestKey}:${item.prompt_id}:${item.brand_id}`
                   const isExpanded = expandedKey === detailKey
-                  const details = trendResult?.key === detailKey ? summarizeModelRanks(trendResult.items, dayKeys) : []
+                  const details = trendResult?.key === detailKey ? summarizeModelCoverage(trendResult.items, dayKeys) : []
                   return <Fragment key={`${item.prompt_id}-${item.brand_id}-${index}`}>
                     <tr className='border-b border-border/60 last:border-0'>
                       <td className='max-w-[360px] whitespace-normal p-2'>
@@ -285,9 +300,10 @@ function BrandRankReport() {
                         </button>
                       </td>
                       <td className='p-2 font-bold'>{item.brand}{item.domain && <span className='ms-2 text-xs font-normal text-muted-text' dir='ltr'>{item.domain}</span>}</td>
-                      <td className='p-2 font-black tabular-nums'>{item.average_rank.toFixed(2)}</td>
-                      <td className='p-2 tabular-nums' title={item.total_runs == null ? undefined : observationTotal(item) > item.observations ? `در ${(observationTotal(item) - item.observations).toLocaleString('fa-IR')} پاسخ از ${observationTotal(item).toLocaleString('fa-IR')} پاسخ این برند نیامده است` : 'در همهٔ پاسخ‌ها آمده است'}>
+                      <td className={`p-2 font-black tabular-nums ${item.average_rank == null ? 'text-muted-text' : ''}`}>{item.average_rank == null ? '—' : item.average_rank.toFixed(2)}</td>
+                      <td className='p-2 tabular-nums' title={item.total_runs == null ? undefined : observationTotal(item) > item.observations ? `در ${(observationTotal(item) - item.observations).toLocaleString('fa-IR')} پاسخ از ${observationTotal(item).toLocaleString('fa-IR')} پاسخ مشاهده‌ای برای این برند ثبت نشده است؛ وضعیت استخراج را در جزئیات ببینید` : 'در همهٔ پاسخ‌ها مشاهده ثبت شده است'}>
                         {observationLabel(item)}
+                        {isNotSeen(item) && <span className='ms-2 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-xs font-bold text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400'>{NOT_SEEN_LABEL}</span>}
                       </td>
                       <td className='p-2 tabular-nums' title='(۱ ÷ درصد مشاهده) × میانگین رتبه'>{effectiveRankCoefficient(item)?.toLocaleString('fa-IR', { maximumFractionDigits: 2 }) ?? '—'}</td>
                     </tr>
@@ -306,7 +322,7 @@ function BrandRankReport() {
                                 <td className='p-2 font-bold tabular-nums'>{detail.average_rank?.toFixed(2) ?? '—'}</td>
                                 <td className='p-2 tabular-nums'>{detail.latest_rank ?? '—'}</td>
                                 <td className={`p-2 font-bold tabular-nums ${detail.rank_change == null ? 'text-muted-text' : detail.rank_change <= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{detail.rank_change == null ? '—' : `${detail.rank_change > 0 ? '+' : ''}${detail.rank_change}`}</td>
-                                <td className='p-2 tabular-nums'>{detail.observations.toLocaleString('fa-IR')}</td>
+                                <td className='p-2 tabular-nums'>{detail.observations.toLocaleString('fa-IR')} از {(detail.successful_runs ?? 0).toLocaleString('fa-IR')}{Boolean(detail.incomplete_extractions) && <span className='ms-2 text-amber-700 dark:text-amber-400'>استخراج {(detail.incomplete_extractions ?? 0).toLocaleString('fa-IR')} پاسخ کامل نیست؛ نبود برند قطعی نیست</span>}</td>
                                 {dayKeys.map(day => <td key={day} className='p-2 text-center tabular-nums'>{detail.daily[day] ?? '—'}</td>)}
                               </tr>)}</tbody>
                              </table>
@@ -323,7 +339,7 @@ function BrandRankReport() {
         ) : <p className='py-6 text-center text-sm text-muted-text'>در این بازه برای پرامپت‌های انتخاب‌شده رتبه‌ای ثبت نشده است.</p>)}
       </CardContent>
     </Card>
-    {projectId && <CompetitorRadarCard key={projectId} projectId={projectId} prompts={prompts} />}
+    {projectId && <CompetitorRadarCard key={projectId} projectId={projectId} prompts={prompts} modelId={modelId} />}
     {projectId && <CostSummaryCard key={`cost-${projectId}`} projectId={projectId} />}
     </>
   )

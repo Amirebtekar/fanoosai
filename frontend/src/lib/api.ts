@@ -102,13 +102,13 @@ export function addProjectBrand(projectId: number, body: Omit<ProjectBrand, 'id'
 export function deleteProjectBrand(projectId: number, brandId: number): Promise<void> { return authRequest('DELETE', '/projects/' + projectId + '/brands/' + brandId) }
 export function getProjectDashboard(projectId: number): Promise<ProjectDashboard> { return authRequest('GET', '/projects/' + projectId + '/dashboard') }
 export function getModelPerformance(projectId: number, days: 7 | 30 = 7): Promise<ModelPerformance[]> { return authRequest('GET', `/projects/${projectId}/model-performance?days=${days}`) }
-export interface BrandRankSummaryItem { prompt_id: number; prompt: string; brand_id: number; brand: string; domain?: string | null; average_rank: number; observations: number; total_runs?: number }
-export function getBrandRankSummary(projectId: number, params: { days?: 7 | 30; prompt_id?: number; brand_id?: number; page?: number; page_size?: number } = {}): Promise<Page<BrandRankSummaryItem>> {
+export interface BrandRankSummaryItem { prompt_id: number; prompt: string; brand_id: number; brand: string; domain?: string | null; average_rank: number | null; observations: number; total_runs?: number }
+export function getBrandRankSummary(projectId: number, params: { days?: 7 | 30; prompt_id?: number; brand_id?: number; ai_model_id?: number; page?: number; page_size?: number } = {}): Promise<Page<BrandRankSummaryItem>> {
   const query = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) })
   return authRequest('GET', `/projects/${projectId}/brand-rank-summary?${query}`)
 }
-export async function getAllBrandRankSummary(projectId: number, filters: { days: 7 | 30; prompt_id?: number; brand_id?: number }): Promise<BrandRankSummaryItem[]> {
+export async function getAllBrandRankSummary(projectId: number, filters: { days: 7 | 30; prompt_id?: number; brand_id?: number; ai_model_id?: number }): Promise<BrandRankSummaryItem[]> {
   const items: BrandRankSummaryItem[] = []
   let page = 1
   while (true) {
@@ -124,7 +124,7 @@ export interface CompetitorRadarBrand {
   appearances: number; average_rank: number | null; top_three_count: number; models: number; prompts: number
 }
 export interface CompetitorRadar { days: number; total_runs: number; total_models: number; total_prompts: number; brands: CompetitorRadarBrand[] }
-export function getCompetitorRadar(projectId: number, params: { days: 7 | 30; prompt_id?: number; limit?: number }): Promise<CompetitorRadar> {
+export function getCompetitorRadar(projectId: number, params: { days: 7 | 30; prompt_id?: number; ai_model_id?: number; limit?: number }): Promise<CompetitorRadar> {
   const query = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) })
   return authRequest('GET', `/projects/${projectId}/competitor-radar?${query}`)
@@ -154,6 +154,13 @@ export interface PromptRankingItem { brand: string; domain?: string | null; rank
 export interface LatestRanking extends PromptRankingItem { confidence?: number | null }
 export function getPromptRankings(promptId: number): Promise<PromptRankingItem[]> { return authRequest('GET', '/prompts/' + promptId + '/rankings') }
 export function getLatestRankings(promptId: number, params: { page?: number; ai_model_id?: number; brand_id?: number; start_date?: string; end_date?: string; sort?: 'rank' | 'date' } = {}): Promise<Page<LatestRanking>> { const query = new URLSearchParams(); Object.entries(params).forEach(([key, value]) => { if (value !== undefined) query.set(key, String(value)) }); return authRequest('GET', `/prompts/${promptId}/latest-rankings?${query}`) }
+
+export interface ModelBrandDetail { ai_model_id: number; ai_model: string; successful_runs: number; completed_extractions: number; incomplete_extractions: number; points: BrandTrendPoint[] }
+export function getPromptModelBrandDetails(promptId: number, params: { brand_id: number; days: number; ai_model_id?: number }): Promise<{ prompt_id: number; items: ModelBrandDetail[] }> {
+  const query = new URLSearchParams({ brand_id: String(params.brand_id), days: String(params.days) })
+  if (params.ai_model_id !== undefined) query.set('ai_model_id', String(params.ai_model_id))
+  return authRequest('GET', `/prompts/${promptId}/model-brand-details?${query}`)
+}
 
 export interface BrandTrendPoint { date: string; rank: number; ai_run_id: number }
 export interface BrandTrend { brand_id: number; brand: string; domain?: string | null; ai_model_id: number; ai_model: string; points: BrandTrendPoint[]; rank_change?: number | null; trend: 'up' | 'down' | 'flat' }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { PRINT_FONT_URL, brandRankSummaryCsv, brandRankSummaryPrintHtml, effectiveRankCoefficient, observationLabel, observationTotal, summarizeModelRanks, tehranBounds, tehranReportDays, waitForPrintFonts } from './rank-model-details'
+import { NOT_SEEN_LABEL, PRINT_FONT_URL, brandRankSummaryCsv, brandRankSummaryPrintHtml, effectiveRankCoefficient, isNotSeen, observationLabel, observationTotal, projectModelOptions, summarizeModelCoverage, summarizeModelRanks, tehranBounds, tehranReportDays, waitForPrintFonts } from './rank-model-details'
 
 describe('print font', () => {
   it('loads Vazirmatn and uses it for body and chart text', () => {
@@ -57,6 +57,20 @@ describe('dashboard brand rank model details', () => {
     expect(rows[0]).toMatchObject({ ai_model: 'model-b', average_rank: 1, latest_rank: 1, rank_change: null, observations: 1 })
     expect(rows[1]).toMatchObject({ ai_model: 'model-a', average_rank: 3, latest_rank: 4, rank_change: 2, observations: 2 })
     expect(rows[1].daily).toEqual({ '2026-09-26': 2, '2026-09-27': 4 })
+  })
+
+  it('includes models with no observations and retains incomplete extraction coverage', () => {
+    const rows = summarizeModelCoverage([
+      { ai_model_id: 1, ai_model: 'Luna', successful_runs: 7, completed_extractions: 7, incomplete_extractions: 0, points: [] },
+      { ai_model_id: 2, ai_model: 'unknown', successful_runs: 2, completed_extractions: 0, incomplete_extractions: 2, points: [] },
+      { ai_model_id: 3, ai_model: 'seen', successful_runs: 2, completed_extractions: 2, incomplete_extractions: 0, points: [
+        { date: '2026-09-26T22:00:00Z', rank: 1, ai_run_id: 1 },
+        { date: '2026-09-26T23:00:00Z', rank: 2, ai_run_id: 2 },
+      ] },
+    ], ['2026-09-27'])
+    expect(rows.find(row => row.ai_model === 'Luna')).toMatchObject({ observations: 0, average_rank: null, latest_rank: null, rank_change: null, successful_runs: 7, daily: {} })
+    expect(rows.find(row => row.ai_model === 'unknown')).toMatchObject({ observations: 0, incomplete_extractions: 2 })
+    expect(rows.find(row => row.ai_model === 'seen')).toMatchObject({ observations: 2 })
   })
 
   it('exports all filtered summary rows and prevents spreadsheet formulas', () => {
@@ -132,6 +146,47 @@ describe('dashboard brand rank model details', () => {
       { prompt_id: 1, prompt: 'p', brand_id: 2, brand: 'b', domain: null, average_rank: 1, observations: 34, total_runs: 35 },
     ], { project: 'x', prompt: 'y', brand: 'z', days: 7 })
     expect(html).toContain('<td>34 از 35</td>')
+  })
+
+  it('exports unseen brands with an empty average rank', () => {
+    const csv = brandRankSummaryCsv([
+      { prompt_id: 1, prompt: 'p', brand_id: 2, brand: 'b', domain: 'b.com', average_rank: null, observations: 0, total_runs: 32 },
+    ])
+    expect(csv).toContain('"p","b","b.com","","0","32"')
+    expect(csv).not.toContain('null')
+    expect(csv).not.toContain('NaN')
+  })
+
+  it('prints unseen brands with a dash and the not-seen label', () => {
+    const html = brandRankSummaryPrintHtml([
+      { prompt_id: 1, prompt: 'p', brand_id: 2, brand: 'b', domain: null, average_rank: null, observations: 0, total_runs: 32 },
+      { prompt_id: 2, prompt: 'q', brand_id: 2, brand: 'b', domain: null, average_rank: 2, observations: 3, total_runs: 5 },
+    ], { project: 'x', prompt: 'y', brand: 'z', days: 7 })
+    expect(html).toContain(`<td>—</td><td>0 از 32 (${NOT_SEEN_LABEL})</td>`)
+    expect(html).toContain('<td>2.00</td><td>3 از 5</td>')
+    expect(html).not.toContain('null')
+  })
+
+  it('flags only rows without observations as not seen', () => {
+    expect(isNotSeen({ observations: 0, average_rank: null })).toBe(true)
+    expect(isNotSeen({ observations: 2, average_rank: 1.5 })).toBe(false)
+    expect(observationLabel({ observations: 0, total_runs: 32 })).toBe('۰ از ۳۲')
+  })
+
+  it('lists the model filter in the print header only when given', () => {
+    const item = { prompt_id: 1, prompt: 'p', brand_id: 2, brand: 'b', domain: null, average_rank: 1, observations: 1 }
+    expect(brandRankSummaryPrintHtml([item], { project: 'x', prompt: 'y', brand: 'z', days: 7, model: '<GPT>' })).toContain('<span>مدل: &lt;GPT&gt;</span>')
+    expect(brandRankSummaryPrintHtml([item], { project: 'x', prompt: 'y', brand: 'z', days: 7 })).not.toContain('مدل:')
+  })
+
+  it('derives unique model options sorted by name', () => {
+    const model = (id: number, name: string) => ({ id, name, provider: 'p', model_key: String(id), is_active: true })
+    expect(projectModelOptions([
+      { models: [model(2, 'Gemini'), model(1, 'Claude')] },
+      { models: [model(2, 'Gemini'), model(3, 'GPT')] },
+      { models: [] },
+    ])).toEqual([{ id: 1, name: 'Claude' }, { id: 2, name: 'Gemini' }, { id: 3, name: 'GPT' }])
+    expect(projectModelOptions([])).toEqual([])
   })
 
   it('builds a seven-day Tehran range and UTC query boundaries', () => {

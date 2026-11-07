@@ -6,19 +6,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { RADAR_AXES, compareWithOwn, topThreeDetails, radarRows, radarSeries } from './competitor-radar-data'
 
-export function CompetitorRadarCard({ projectId, prompts }: { projectId: string; prompts: PromptRead[] }) {
+export function CompetitorRadarCard({ projectId, prompts, modelId = 'all' }: { projectId: string; prompts: PromptRead[]; modelId?: string }) {
   const [days, setDays] = useState<7 | 30>(7)
   const [promptId, setPromptId] = useState('all')
   const [result, setResult] = useState<{ key: string; data?: CompetitorRadarData; error?: boolean } | null>(null)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
 
-  const requestKey = `${projectId}:${promptId}:${days}`
+  const modelFilter = modelId === 'all' ? undefined : Number(modelId)
+  const requestKey = `${projectId}:${promptId}:${modelId}:${days}`
   useEffect(() => {
     if (!projectId) return
-    getCompetitorRadar(Number(projectId), { days, prompt_id: promptId === 'all' ? undefined : Number(promptId), limit: 6 })
+    getCompetitorRadar(Number(projectId), { days, prompt_id: promptId === 'all' ? undefined : Number(promptId), ai_model_id: modelFilter, limit: 6 })
       .then(data => setResult({ key: requestKey, data }))
       .catch(() => setResult({ key: requestKey, error: true }))
-  }, [projectId, promptId, days, requestKey])
+  }, [projectId, promptId, modelFilter, days, requestKey])
 
   const current = result?.key === requestKey ? result : null
   const series = useMemo(() => radarSeries(current?.data?.brands ?? []), [current])
@@ -63,6 +64,7 @@ export function CompetitorRadarCard({ projectId, prompts }: { projectId: string;
         </div>
       </CardHeader>
       <CardContent className='space-y-5'>
+        {modelFilter !== undefined && <p className='text-xs font-medium text-muted-text'>با فیلتر مدل، شاخص پوشش مدل‌ها معنایی ندارد</p>}
         {projectId && !current && <Skeleton className='h-80 w-full bg-accent' />}
         {current?.error && <p role='alert' className='text-sm font-bold text-red-600'>دریافت رادار رقبا ممکن نشد.</p>}
         {current?.data && series.length === 0 && <p className='py-6 text-center text-sm text-muted-text'>در این بازه هنوز برندی ثبت نشده است.</p>}
