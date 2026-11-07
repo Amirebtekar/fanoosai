@@ -77,13 +77,16 @@ describe('dashboard brand rank model details', () => {
     const csv = brandRankSummaryCsv([
       { prompt_id: 1, prompt: 'هاست "ارزان"', brand_id: 2, brand: 'پارس‌پک', domain: 'parspack.com', average_rank: 2.5, observations: 3, total_runs: 4 },
       { prompt_id: 3, prompt: '=HYPERLINK("https://bad.example")', brand_id: 4, brand: 'ایران‌سرور', domain: null, average_rank: 1, observations: 1 },
+      { prompt_id: 5, prompt: 'دیده‌نشده', brand_id: 6, brand: 'آروان', domain: null, average_rank: null, observations: 0 },
     ])
 
     expect(csv.charCodeAt(0)).toBe(0xFEFF)
-    expect(csv).toContain('"تعداد مشاهده","تعداد کل پاسخ‌ها"')
-    expect(csv).toContain('"هاست ""ارزان""","پارس‌پک","parspack.com","2.50","3","4"')
-    expect(csv).toContain('"\'=HYPERLINK(""https://bad.example"")","ایران‌سرور","","1.00","1","1"')
-    expect(csv.split('\r\n')).toHaveLength(3)
+    expect(csv).toContain('"تعداد مشاهده","تعداد کل پاسخ‌ها","ضریب رتبه موثر"')
+    // (1 / 3/4) × 2.5 ≈ 3.33
+    expect(csv).toContain('"هاست ""ارزان""","پارس‌پک","parspack.com","2.50","3","4","3.33"')
+    expect(csv).toContain('"\'=HYPERLINK(""https://bad.example"")","ایران‌سرور","","1.00","1","1","1.00"')
+    expect(csv).toContain('"دیده‌نشده","آروان","","","0","0",""')
+    expect(csv.split('\r\n')).toHaveLength(4)
   })
 
   it('prints the whole filtered summary and escapes user-provided text', () => {
@@ -93,7 +96,8 @@ describe('dashboard brand rank model details', () => {
 
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
     expect(html).toContain('&lt;img src=x&gt;')
-    expect(html).toContain('2.50')
+    expect(html).toContain('ضریب رتبه موثر')
+    expect(html).toContain('<td>2.50</td><td>3</td><td>2.50</td>')
     expect(html).not.toContain('<script>alert(1)</script>')
   })
 
